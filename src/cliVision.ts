@@ -32,6 +32,8 @@ async function main() {
   console.log(`adjustedDensity : ${a.adjustedDensity}`);
   console.log(`riskLevel       : ${a.riskLevel}`);
   console.log(`dataSource      : ${a.dataSource}`);
+  console.log("--- alerts ---");
+  console.log(JSON.stringify(result.vision.payload.alerts ?? null, null, 2));
   console.log("--- vision ---");
   console.log(JSON.stringify(result.vision.payload.vision, null, 2));
 }

@@ -12,6 +12,10 @@ import {
   toCctvDensityInput,
   type CctvFramePayload,
 } from "./cctvAdapter.js";
+import {
+  normalizeVisionAlerts,
+  type VisionSafetyAlerts,
+} from "./visionSafetyAlerts.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..", "..");
@@ -33,6 +37,7 @@ export interface VisionAnalyzeRequest {
 export interface VisionBridgePayload extends CctvFramePayload {
   dataSource?: "vision_yolo_sahi";
   confidence?: number;
+  alerts?: VisionSafetyAlerts;
   vision?: {
     imagePath: string;
     imageStem: string;
@@ -49,8 +54,12 @@ export interface VisionBridgePayload extends CctvFramePayload {
     calibrationPath: string | null;
     heatmapPath: string;
     heatmapRelativePath: string;
+    safetyMapPath?: string;
+    safetyMapRelativePath?: string;
+    maxGridDensityPerM2?: number;
     personCentersPixels: number[][];
     personCentersMeters: number[][];
+    alerts?: VisionSafetyAlerts;
     note: string;
   };
 }
@@ -200,6 +209,10 @@ export function toVisionBridgePayload(
   raw: Record<string, unknown>,
 ): VisionBridgePayload {
   const cameras = (raw.cameras as CctvFramePayload["cameras"]) ?? [];
+  const visionRaw = raw.vision as VisionBridgePayload["vision"] | undefined;
+  const alerts = normalizeVisionAlerts(
+    raw.alerts ?? visionRaw?.alerts,
+  );
   return {
     zoneId: String(raw.zoneId),
     measuredAt: String(raw.measuredAt),
@@ -223,7 +236,15 @@ export function toVisionBridgePayload(
     dataSource: "vision_yolo_sahi",
     confidence:
       typeof raw.confidence === "number" ? raw.confidence : undefined,
-    vision: raw.vision as VisionBridgePayload["vision"],
+    alerts,
+    vision: visionRaw
+      ? {
+          ...visionRaw,
+          alerts: visionRaw.alerts
+            ? normalizeVisionAlerts(visionRaw.alerts)
+            : alerts,
+        }
+      : undefined,
   };
 }
 

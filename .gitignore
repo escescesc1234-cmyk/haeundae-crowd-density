@@ -16,4 +16,8 @@ venv/
 vision/**/yolov8*.pt
 vision/**/yolo*.pt
 vision/output/
+vision/runs/
+vision/datasets/
+vision/**/*_openvino_model/
 *.pt
+*.bin

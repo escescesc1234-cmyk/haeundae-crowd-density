@@ -30,6 +30,16 @@ from homography_density import (
     pixels_to_meters,
     polygon_area_m2,
 )
+from safety_map import (
+    CELL_PX,
+    OVERLAY_ALPHA,
+    build_density_grid_per_m2,
+    build_warning_messages,
+    count_danger_cells,
+    draw_legend,
+    draw_warning_banners,
+    render_safety_map,
+)
 
 
 ROOT = Path(__file__).resolve().parent
@@ -200,6 +210,24 @@ def analyze_image(
     heatmap_path = output_dir / heatmap_name
     cv2.imwrite(str(heatmap_path), heatmap)
 
+    # 안전지도 (40px 격자 + 위험 격자 경고 메시지)
+    density_grid, _, _ = build_density_grid_per_m2(
+        image.shape, centers, roi_mask, H, CELL_PX
+    )
+    safety = render_safety_map(image, density_grid, CELL_PX, OVERLAY_ALPHA)
+    safety = draw_legend(safety)
+    danger_cells = count_danger_cells(density_grid)
+    alerts = build_warning_messages(danger_cells)
+    if alerts["hasDanger"]:
+        eprint(f"[경고][관광객] {alerts['touristMessage']}")
+        eprint(f"[경고][관리자] {alerts['managerMessage']}")
+        safety = draw_warning_banners(safety, alerts)
+    safety_name = f"{stem}_safety_map.jpg"
+    safety_dir = ROOT / "output" / "safety_map"
+    safety_dir.mkdir(parents=True, exist_ok=True)
+    safety_path = safety_dir / safety_name
+    cv2.imwrite(str(safety_path), safety)
+
     measured_at = datetime.now(timezone.utc).isoformat()
 
     # 앱 DensityInput / CctvFramePayload 호환 필드
@@ -218,6 +246,7 @@ def analyze_image(
                 "measuredAt": measured_at,
             }
         ],
+        "alerts": alerts,
         "vision": {
             "imagePath": str(image_path.resolve()),
             "imageStem": stem,
@@ -234,11 +263,18 @@ def analyze_image(
             "calibrationPath": calib_used,
             "heatmapPath": str(heatmap_path.resolve()),
             "heatmapRelativePath": f"vision/output/app_bridge/{heatmap_name}",
+            "safetyMapPath": str(safety_path.resolve()),
+            "safetyMapRelativePath": f"vision/output/safety_map/{safety_name}",
+            "maxGridDensityPerM2": float(np.nanmax(density_grid))
+            if np.any(~np.isnan(density_grid))
+            else 0.0,
             "personCentersPixels": centers,
             "personCentersMeters": persons_m.tolist(),
+            "alerts": alerts,
             "note": (
                 "호모그래피 면적은 fieldVerified=true 일 때만 앱 유효면적으로 사용하세요. "
-                "미검증이면 앱 구역 카탈로그 면적을 사용합니다."
+                "미검증이면 앱 구역 카탈로그 면적을 사용합니다. "
+                "위험(>=6명/m2) 격자가 있으면 alerts 에 관광객/관리자 경고가 포함됩니다."
             ),
         },
     }

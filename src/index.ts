@@ -39,7 +39,34 @@ export type {
   VisionAnalyzeResult,
   VisionBridgePayload,
 } from "./adapters/visionAdapter.js";
+export {
+  VISION_TOURIST_DANGER_MESSAGE,
+  VISION_MANAGER_DANGER_MESSAGE,
+  normalizeVisionAlerts,
+  alertsFromDensityGrid,
+} from "./adapters/visionSafetyAlerts.js";
+export type { VisionSafetyAlerts } from "./adapters/visionSafetyAlerts.js";
 export { createApp } from "./api/server.js";
+export {
+  DensityApiClient,
+  createDensityApiClient,
+} from "./client/densityApiClient.js";
+export {
+  DensityApiError,
+  visionOutputUrl,
+} from "./client/densityApiTypes.js";
+export type {
+  AdminZoneView,
+  DensityAnalysisResult as DensityApiAnalysisResult,
+  DensityClientOptions,
+  DensityHealthResponse,
+  ManualAnalyzeRequest,
+  TouristZoneView,
+  VisionAnalyzeMeta,
+  VisionAnalyzeRequest,
+  VisionAnalyzeResponse,
+  VisionSafetyAlerts as DensityApiVisionAlerts,
+} from "./client/densityApiTypes.js";
 export {
   NotificationService,
   sharedNotificationService,

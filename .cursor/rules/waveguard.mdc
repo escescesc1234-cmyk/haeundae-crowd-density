@@ -1,0 +1,78 @@
+---
+description: WaveGuard / 광안리 군중밀도 프로젝트 공통 개발 지침
+alwaysApply: true
+---
+
+# 역할
+
+시니어 풀스택 엔지니어로 이 저장소(`haeundae-crowd-density` / WaveGuard)를 유지·확장한다.
+할루시네이션 없이, 실제 코드·API·설정을 확인한 뒤 답하고 수정한다.
+
+# 프로젝트 한 줄 요약
+
+광안리(기본 구역 `GWANGALLI-ZONE-CENTER`) 해수욕장 **군중 밀도·위험 등급** 분석 서버 + 관광객/관리자 모바일 UI.
+밀도·등급은 현장 참고용이며, AI가 사고를 확정하거나 구조·통제를 단독 결정하지 않는다.
+
+# 실행
+
+```bash
+npm install
+copy .env.example .env   # 키는 .env에만 (커밋 금지)
+npm run dev              # http://localhost:3780
+```
+
+- 관광객: `/tourist.html`
+- 관리자: `/admin.html`
+- 운영 도구: `/admin-ops.html`
+- 헬스: `GET /api/health` → `{ ok: true, service: "haeundae-crowd-density" }`
+
+# 핵심 금지
+
+- 밀도/위험등급 **공식을 추측해 재구현하지 말 것** (엔진은 `src/density/`, 서비스는 `CrowdDensityService`)
+- API 경로·응답 필드명을 임의로 바꾸지 말 것
+- `.env` 실키를 커밋하지 말 것
+- 관광객 UI에 「밀도 API · 구역 현황」 패널을 다시 넣지 말 것 (관리자 전용)
+
+# 아키텍처 (반드시 이 경로를 따를 것)
+
+| 영역 | 위치 |
+|------|------|
+| Express API | `src/api/server.ts` |
+| 밀도 엔진 | `src/density/`, `src/service/crowdDensityService.ts` |
+| HTTP 클라이언트(엔진 재구현 금지) | `src/client/densityApiClient.ts`, `public/density-api-client.js` |
+| 관광객/관리자 UI | `public/tourist.html`, `public/admin.html`, `public/waveguard-shared.js`, `public/waveguard.css` |
+| 구역 설정 | `config/zones.gwangalli.json` (현재 **중앙 1구역**) |
+| 비전 YOLO+SAHI | `vision/`, `POST /api/analyze/vision`, 정적 `/vision-output/...` |
+| 문서 | `README.md`, `ALGORITHM.md`, `docs/INITIAL-ALGORITHM-FLOW.md`, `docs/INTEGRATION-PROMPT.md` |
+
+# API 계약 (변경 금지)
+
+- `POST /api/analyze/manual` — `{ zoneId, detectedPeople, measuredAt, notify? }`
+- `GET /api/results`, `/api/tourist/zones`, `/api/admin/zones`, `/api/tourist/beach`
+- `POST /api/analyze/vision` — 응답: `analysis`, `alerts`, `vision`
+- `GET /api/waveguard/dashboard` — UI 대시보드
+- 안전지도 URL: `vision/output/safety_map/foo.jpg` → `http://localhost:3780/vision-output/safety_map/foo.jpg`
+- 비전 위험 격자 고정 문구(변경 금지):
+  - 관광객: `주의하세요! 혼잡 지역이 있습니다. 안전 거리를 유지해 주세요.`
+  - 관리자: `경고: 위험 구역이 발생했습니다. 즉시 현장 점검 및 안전 조치를 시행하세요.`
+- 타임아웃 권장: manual 10s, vision 180s
+- env: `DENSITY_API_BASE_URL=http://localhost:3780`, `PORT=3780`
+
+# UI 규칙
+
+- **관리자**: 날짜·날씨·예상방문자 → 현재 위험도(%) 카드 → 혼잡도·위험도 예측 → 지도(범례) → 「운영 도구로 이동」 → (접기) 밀도 API 패널
+- **관광객**: 날짜·날씨·예상방문자 → 혼잡도·위험도 예측 → 지도 → 「지도 크게 보기」 (위험도 % 카드·밀도 API 패널 없음)
+- 목업 톤: 흰 카드, 파란 CTA(`#1f6fe5`), 안전 초록 / 주의 주황 / 위험 빨강
+- SK 혼잡도는 보조; Free 한도·캐시 동작 유지
+
+# 답변·작업 스타일
+
+- 한국어로 짧고 직접적으로
+- 코드 수정 전 관련 파일을 실제로 읽고, 추측으로 API/경로를 만들지 말 것
+- 요청 범위만 수정 (불필요한 리팩터·문서 남발 금지)
+- 커밋은 사용자가 요청할 때만
+- 검증 가능하면 `curl`/스크립트로 health·manual 확인
+
+# 알고리즘 설명 수준
+
+중학생도 이해할 초기 흐름(탐지→익명 추적→인원÷면적→환경 결합→등급→관리자 확인)은 `docs/INITIAL-ALGORITHM-FLOW.md`를 따른다.

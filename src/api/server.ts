@@ -31,6 +31,20 @@ export function createApp() {
     });
   });
 
+  /** 브라우저 DensityApiClient용 baseUrl 안내 (비밀키 없음) */
+  app.get("/api/client-config", (_req, res) => {
+    const configured = (process.env.DENSITY_API_BASE_URL ?? "").replace(
+      /\/$/,
+      "",
+    );
+    res.json({
+      densityApiBaseUrl: configured,
+      defaultZoneId: "GWANGALLI-ZONE-CENTER",
+      port: Number(process.env.PORT ?? 3780),
+      note: "동일 오리진 UI는 상대 경로로 API를 호출해도 됩니다.",
+    });
+  });
+
   app.get("/api/zones", (_req, res) => {
     res.json(sharedService.getCatalog());
   });
@@ -163,6 +177,7 @@ export function createApp() {
         ok: true,
         analysis: result.analysis,
         vision: result.vision.payload.vision,
+        alerts: result.vision.payload.alerts,
         densityInput: result.vision.densityInput,
         notification: result.notification,
         disclaimer:
@@ -180,6 +195,37 @@ export function createApp() {
     "/vision-output",
     express.static(join(__dirname, "..", "..", "vision", "output")),
   );
+
+  /** 실시간 안전지도 스트림 메타 (Python :8790 에서 제공) */
+  app.get("/api/vision/realtime", (_req, res) => {
+    const base =
+      process.env.REALTIME_SAFETY_URL?.replace(/\/$/, "") ??
+      "http://127.0.0.1:8790";
+    res.json({
+      ok: true,
+      service: "realtime-safety-map",
+      uiUrl: `${base}/`,
+      streamUrl: `${base}/stream`,
+      statusUrl: `${base}/api/status`,
+      defaultSource: "https://www.youtube.com/watch?v=jmVmZlsQIL8",
+      howToStart: "npm run vision:realtime",
+      grid: {
+        cellW: 40,
+        cellH: 15,
+        colors: {
+          safe: { hex: "#00FF00", maxExclusive: 4, alpha: 0.5 },
+          caution: { hex: "#FFFF00", minInclusive: 4, maxExclusive: 6, alpha: 0.5 },
+          danger: { hex: "#FF0000", minInclusive: 6, alpha: 0.5 },
+        },
+      },
+      alerts: {
+        tourist:
+          "주의하세요! 혼잡 지역이 있습니다. 안전 거리를 유지해 주세요.",
+        manager:
+          "경고: 위험 구역이 발생했습니다. 즉시 현장 점검 및 안전 조치를 시행하세요.",
+      },
+    });
+  });
 
   app.get("/api/results", (_req, res) => {
     const results = sharedService.getLatestResults();

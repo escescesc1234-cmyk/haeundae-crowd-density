@@ -87,7 +87,65 @@ GET /api/parking/auxiliary-risk              # 주차 혼잡 → AuxiliaryRiskFa
 `config/zones.haeundae.json` — 해수욕장 7구역 + 공영주차장 3구역 포함.  
 주차장 구역은 임계값 오버라이드 적용 (점유율 기준: 혼잡 0.6 / 임계 0.8 / 위험 1.0).
 
-## 모듈 import (AI LAB 연동)
+## 해운대 밀도 서비스 연동
+
+이 저장소는 **밀도 API 서버**이면서, 관광객/관리자 UI가 `DensityApiClient`로 같은 HTTP 계약을 소비합니다.  
+다른 앱에서도 엔진을 복사하지 말고 아래 API만 호출하세요.
+
+### 실행 순서
+
+1. 밀도 서비스 기동
+   ```bash
+   npm install
+   copy .env.example .env   # DENSITY_API_BASE_URL=http://localhost:3780
+   npm run dev
+   ```
+2. 헬스체크
+   ```bash
+   curl http://localhost:3780/api/health
+   # → {"ok":true,"service":"haeundae-crowd-density",...}
+   ```
+3. 1차 연동(수동 분석)
+   ```bash
+   curl -X POST http://localhost:3780/api/analyze/manual ^
+     -H "Content-Type: application/json" ^
+     -d "{\"zoneId\":\"GWANGALLI-ZONE-CENTER\",\"detectedPeople\":800,\"measuredAt\":\"2026-07-29T12:00:00.000Z\",\"notify\":false}"
+   ```
+4. UI 확인
+   - 관광객: http://localhost:3780/tourist.html (지도·예측 등)
+   - 관리자: http://localhost:3780/admin.html → 「밀도 API · 구역 현황」 패널
+5. (선택) 비전 안전지도 — Python 의존성 + `VISION_PYTHON` 설정 후 UI의 「비전 안전지도」 또는
+   `POST /api/analyze/vision`
+
+### HTTP 클라이언트
+
+| 위치 | 용도 |
+|------|------|
+| `src/client/densityApiClient.ts` | Node/TS (`health`, `analyzeManual`, `getTouristZones`, `analyzeVision` …) |
+| `public/density-api-client.js` | 브라우저 UI |
+
+```ts
+import { DensityApiClient } from "haeundae-crowd-density";
+
+const client = new DensityApiClient({
+  baseUrl: process.env.DENSITY_API_BASE_URL ?? "http://localhost:3780",
+});
+await client.health();
+const result = await client.analyzeManual({
+  zoneId: "GWANGALLI-ZONE-CENTER",
+  detectedPeople: 800,
+  measuredAt: new Date().toISOString(),
+  notify: false,
+});
+// result.riskLevel, result.detectedPeople, result.adjustedDensity
+```
+
+환경변수: `DENSITY_API_BASE_URL` (기본 `http://localhost:3780`), 서버 포트 `PORT`.  
+타임아웃: manual 10s · vision 180s. 연결 실패 시 UI에 **「밀도 분석 서비스 연결 실패」** 표시.
+
+다른 프로젝트 복붙용 프롬프트: [`docs/INTEGRATION-PROMPT.md`](docs/INTEGRATION-PROMPT.md)
+
+### 모듈 import (프로세스 내 연동)
 
 ```ts
 import {
@@ -110,10 +168,11 @@ const result = await crowdService.analyzeAndNotify({
 config/          임계값·구역 정의
 src/density/     계산·스무징·히스테리시스·등급 판정
 src/adapters/    수동/CCTV/비전 입력 어댑터
+src/client/      DensityApiClient (HTTP 소비 전용)
 src/views/       관광객·관리자 뷰 모델
 src/api/         Express API
 vision/          YOLOv8+SAHI 사람 탐지·밀도맵·호모그래피 (Python)
-public/          UI
+public/          UI (+ density-api-client.js)
 tests/           단위·경계값 테스트
 data/            테스트 측정 데이터
 ```

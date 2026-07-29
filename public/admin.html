@@ -10,8 +10,8 @@
 <body>
   <div class="app" data-role="admin">
     <header class="app-header">
-      <span class="logo"><span class="mark">😊</span> WaveGuard 관리자</span>
-      <a class="gear" href="/admin-settings.html" title="설정" id="openSettings">⚙️</a>
+      <span class="logo"><span class="mark" aria-hidden="true">😊</span> WaveGuard 관리자</span>
+      <a class="gear" href="/admin-settings.html" title="설정" id="openSettings" aria-label="설정">⚙️</a>
     </header>
 
     <div class="content">
@@ -19,72 +19,113 @@
 
       <section class="stats-row" id="statsRow">
         <article class="stat-card">
-          <p class="stat-label">오늘 날짜</p>
+          <div class="stat-ico" aria-hidden="true">📅</div>
           <p class="stat-value" id="statDate">--</p>
+          <p class="stat-label">오늘 날짜</p>
         </article>
         <article class="stat-card">
+          <div class="stat-ico" id="statWeatherIcon" aria-hidden="true">☀️</div>
+          <p class="stat-value" id="statWeather">--</p>
           <p class="stat-label">현재 날씨</p>
-          <p class="stat-value"><span id="statWeatherIcon">☀️</span> <span id="statWeather">--</span></p>
         </article>
         <article class="stat-card">
+          <div class="stat-ico" aria-hidden="true">👥</div>
+          <p class="stat-value"><span id="statVisitors">--</span></p>
           <p class="stat-label">오늘 예상 방문자 수</p>
-          <p class="stat-value"><span class="people-ico">👥</span> <span id="statVisitors">--</span></p>
         </article>
       </section>
 
       <section class="card risk-card" id="riskCard">
-        <div class="risk-ico">🛡️</div>
-        <div class="risk-body">
-          <p class="risk-label">현재 위험도</p>
-          <p class="risk-pct"><span id="riskPct">--</span><small>%</small></p>
-          <p class="risk-level">위험도: <strong id="riskLevel">--</strong></p>
+        <div class="risk-left">
+          <div class="risk-shield" aria-hidden="true">🛡️</div>
+          <div class="risk-metrics">
+            <p class="risk-pct"><span id="riskPct">--</span><small>%</small></p>
+            <p class="risk-level">위험도: <strong id="riskLevel">--</strong></p>
+          </div>
         </div>
         <p class="risk-msg" id="riskMsg">불러오는 중...</p>
       </section>
 
-      <section class="card">
-        <h3 class="section-title">혼잡도·위험도 예측</h3>
+      <section class="card pred-card">
+        <div class="section-head">
+          <h3 class="section-title">혼잡도·위험도 예측</h3>
+          <p class="section-sub">
+            실시간 혼잡도 분석 기반 예측
+            <span class="info-dot" title="참고 정보입니다">ⓘ</span>
+          </p>
+        </div>
         <div class="pred-list" id="predList"></div>
       </section>
 
       <section class="card map-card">
-        <div class="map-head">
-          <h3>📍 <span id="beachName">광안리 해수욕장</span></h3>
-          <span class="chev">▾</span>
-        </div>
+        <button type="button" class="beach-select" id="beachSelect" aria-expanded="false">
+          <span class="pin" aria-hidden="true">📍</span>
+          <span id="beachName">광안리 해수욕장</span>
+          <span class="chev" aria-hidden="true">▾</span>
+        </button>
         <div class="map-frame">
-          <svg id="beachMap" viewBox="0 0 360 250" width="100%" role="img" aria-label="광안리 해수욕장 관리 지도">
-            <rect x="0" y="0" width="360" height="92" fill="#f6f2e8" />
+          <svg id="beachMap" viewBox="0 0 360 260" width="100%" role="img" aria-label="광안리 해수욕장 관리 지도">
+            <defs>
+              <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#d8eafc" />
+                <stop offset="100%" stop-color="#f4f7fb" />
+              </linearGradient>
+              <linearGradient id="sandGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#f3e4c4" />
+                <stop offset="100%" stop-color="#e8d4a8" />
+              </linearGradient>
+            </defs>
+            <rect x="0" y="0" width="360" height="260" fill="url(#skyGrad)" />
+            <path d="M0,70 Q40,40 90,55 T180,48 T270,58 T360,45 L360,0 L0,0 Z" fill="#cfe3c4" opacity="0.55" />
+            <path d="M0,95 L0,155 Q90,140 180,148 Q270,156 360,142 L360,95 Q270,110 180,102 Q90,94 0,95 Z" fill="url(#sandGrad)" />
             <g id="zoneWedges"></g>
-            <path d="M0,250 L0,205 Q90,190 180,198 Q270,206 360,196 L360,250 Z" fill="#3f8fe0" />
-            <path d="M0,250 L0,220 Q120,208 240,216 Q320,221 360,214 L360,250 Z" fill="#2f7bd0" opacity="0.85" />
+            <path d="M0,260 L0,175 Q90,160 180,168 Q270,176 360,162 L360,260 Z" fill="#4a9be8" />
+            <path d="M0,260 L0,200 Q120,188 240,196 Q320,201 360,190 L360,260 Z" fill="#2f7bd0" opacity="0.9" />
             <g font-size="10" font-weight="700" fill="#24344a">
-              <g transform="translate(26,30)">
+              <g transform="translate(24,28)">
                 <rect x="-6" y="-13" rx="9" width="78" height="20" fill="#fff" stroke="#dce4ec" />
                 <text x="4" y="1">🌉 광안대교</text>
               </g>
-              <g transform="translate(146,20)">
+              <g transform="translate(150,18)">
                 <rect x="-6" y="-13" rx="9" width="76" height="20" fill="#fff" stroke="#dce4ec" />
                 <text x="4" y="1">🚇 광안역</text>
               </g>
-              <g transform="translate(258,34)">
+              <g transform="translate(255,36)">
                 <rect x="-6" y="-13" rx="9" width="84" height="20" fill="#fff" stroke="#dce4ec" />
                 <text x="4" y="1">☕ 카페거리</text>
               </g>
             </g>
           </svg>
+          <div class="map-legend" aria-hidden="true">
+            <span><i class="lg safe"></i>안전</span>
+            <span><i class="lg warn"></i>주의</span>
+            <span><i class="lg danger"></i>위험</span>
+          </div>
+          <button type="button" class="map-locate" title="내 위치" aria-label="내 위치">➤</button>
         </div>
-        <a class="map-cta" id="mapCta" href="/admin-ops.html">운영 도구로 이동 &gt;</a>
-        <p class="map-hint">수동 입력·임계값·알림은 운영 도구에서 확인하세요</p>
+        <a class="map-cta" id="mapCta" href="/admin-ops.html">운영 도구로 이동</a>
         <div class="zone-list" id="zoneList"></div>
       </section>
 
+      <details class="card density-panel" id="densityPanel">
+        <summary class="section-title density-summary">밀도 API · 구역 현황</summary>
+        <p class="density-meta" id="densityMeta">밀도 서비스에서 불러오는 중…</p>
+        <div class="density-alert" id="densityAlert" role="status"></div>
+        <div class="density-actions">
+          <button type="button" class="density-btn" id="btnDensityRefresh">최신 결과 새로고침</button>
+          <button type="button" class="density-btn secondary" id="btnDensitySample">샘플 수동 분석</button>
+          <button type="button" class="density-btn secondary" id="btnVisionAnalyze" title="YOLO+SAHI · 최대 3분">비전 안전지도</button>
+        </div>
+        <div class="vision-maps" id="visionMaps" hidden></div>
+        <p class="density-status" id="densityStatus"></p>
+      </details>
+
       <p class="footnote">
         AI 분석 결과는 참고용입니다. 위험 등급 발생 시 CCTV·현장 확인 후 조치하세요.
-        SK 혼잡도 API는 기본 비활성입니다. 테스트는 <a href="/admin-ops.html">운영 도구</a>에서 연결하세요.
       </p>
     </div>
   </div>
+  <script src="/density-api-client.js"></script>
   <script src="/waveguard-shared.js"></script>
   <script>
     document.getElementById("openSettings").addEventListener("click", () => {

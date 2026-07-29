@@ -10,6 +10,8 @@
     "dev": "tsx src/api/start.ts",
     "analyze": "tsx src/cli.ts",
     "vision:analyze": "tsx src/cliVision.ts",
+    "vision:realtime": "tsx src/cliRealtimeSafety.ts",
+    "vision:finetune": "cd vision && python finetune_beach_max.py",
     "test": "vitest run",
     "test:watch": "vitest"
   },
