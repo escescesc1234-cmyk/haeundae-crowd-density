@@ -1,0 +1,185 @@
+{
+  "beachId": "HAEUNDAE",
+  "beachName": "해운대 해수욕장",
+  "disclaimer": "구역 면적은 예시 참고값입니다. 실제 운영 전 GIS·현장 측량으로 유효 면적을 갱신해야 합니다. 임계값은 현장 검증 전 절대 기준이 아닙니다.",
+  "dataSources": {
+    "cctv": {
+      "busanIts": {
+        "description": "부산광역시 교통 CCTV API",
+        "dataGoKrId": "15120867",
+        "url": "https://www.data.go.kr/data/15120867/openapi.do",
+        "apiEnvKey": "BUSAN_ITS_API_KEY",
+        "cameras": ["BSN-HAEUNDAE-001", "BSN-HAEUNDAE-002", "BSN-HAEUNDAE-003"],
+        "resolution": "실시간 스트림",
+        "note": "교통 CCTV 설치위치·영상URL·위경도 포함"
+      },
+      "haeundaeDistrict": {
+        "description": "해운대구 CCTV 정보 조회 API",
+        "dataGoKrId": "15070811",
+        "url": "https://www.data.go.kr/data/15070811/openapi.do",
+        "endpoint": "http://apis.data.go.kr/3330000/HeaundaeCctvInfoService/getCctvList",
+        "apiEnvKey": "HAEUNDAE_CCTV_API_KEY",
+        "totalInstalled": 2188,
+        "note": "설치지역·주소·위경도 포함, 개발계정 자동승인"
+      },
+      "aiHub_ripCurrent": {
+        "description": "AI-Hub 이안류 CCTV 데이터셋 (해운대 4대)",
+        "dataSetSn": 71297,
+        "url": "https://aihub.or.kr/aihubdata/data/view.do?dataSetSn=71297",
+        "cameras": ["GLORY", "PARA1", "PARA2", "SEAC1"],
+        "totalImages": 110215,
+        "resolution": "HD 1,280×720",
+        "labelType": "bounding_box",
+        "note": "이안류 탐지 라벨 포함. 실제 해수욕장 배경 학습에 적합"
+      },
+      "aiHub_crowdCharacteristic": {
+        "description": "AI-Hub 실내외 군중 특성 데이터셋",
+        "dataSetSn": 71368,
+        "url": "https://aihub.or.kr/aihubdata/data/view.do?dataSetSn=71368",
+        "totalImages": 228195,
+        "mp4Count": 400,
+        "labelType": "headpoint + bounding_box",
+        "crowdLabels": ["counting", "collectiveness", "stability", "uniformity"],
+        "note": "군중 밀도 모델 학습에 직접 활용 가능"
+      },
+      "youtubeStream": {
+        "description": "YouTube 4K 라이브캠 — Busan Haeundae Live",
+        "channelId": "UCZsIhpfgnO7nNrDWu7dj89g",
+        "sampleUrl": "https://www.youtube.com/watch?v=Er-GpkYE2M4",
+        "resolution": "4K",
+        "note": "yt-dlp 또는 ffmpeg으로 프레임 추출 가능. 실시간 데이터 수집용"
+      }
+    },
+    "parking": {
+      "busanBisco": {
+        "description": "부산시설공단 공영주차장 실시간 현황 API",
+        "dataGoKrId": "15157490",
+        "url": "https://www.data.go.kr/data/15157490/openapi.do",
+        "apiEnvKey": "BUSAN_PARKING_API_KEY",
+        "updateCycle": "실시간",
+        "portalUrl": "https://bsparking.bisco.or.kr/realtimeparking",
+        "note": "주차가능대수·현재대수·최종갱신시각 제공, 자동승인"
+      }
+    }
+  },
+  "zones": [
+    {
+      "zoneId": "HAEUNDAE-ZONE-01",
+      "zoneName": "백사장 1구역 (동쪽)",
+      "zoneType": "sand_beach",
+      "totalAreaSquareMeters": 1500,
+      "excludedAreaSquareMeters": 100,
+      "effectiveAreaSquareMeters": 1400,
+      "linkedCctvIds": ["BSN-HAEUNDAE-001", "PARA1"],
+      "notes": "AI-Hub PARA1 카메라 커버리지 구역"
+    },
+    {
+      "zoneId": "HAEUNDAE-ZONE-02",
+      "zoneName": "백사장 2구역 (서쪽)",
+      "zoneType": "sand_beach",
+      "totalAreaSquareMeters": 1400,
+      "excludedAreaSquareMeters": 80,
+      "effectiveAreaSquareMeters": 1320,
+      "linkedCctvIds": ["BSN-HAEUNDAE-002", "PARA2"],
+      "notes": "AI-Hub PARA2 카메라 커버리지 구역"
+    },
+    {
+      "zoneId": "HAEUNDAE-ZONE-03",
+      "zoneName": "해안선 인접 구역",
+      "zoneType": "shoreline",
+      "totalAreaSquareMeters": 800,
+      "excludedAreaSquareMeters": 200,
+      "effectiveAreaSquareMeters": 600,
+      "linkedCctvIds": ["GLORY", "SEAC1"],
+      "notes": "AI-Hub GLORY·SEAC1 커버리지. 이안류 감지 우선 구역"
+    },
+    {
+      "zoneId": "HAEUNDAE-ZONE-04",
+      "zoneName": "입수 가능 구역",
+      "zoneType": "swimming",
+      "totalAreaSquareMeters": 1000,
+      "excludedAreaSquareMeters": 300,
+      "effectiveAreaSquareMeters": 700,
+      "linkedCctvIds": ["SEAC1"],
+      "notes": "입수 금지 수역 제외. 이안류 위험 최우선 모니터링"
+    },
+    {
+      "zoneId": "HAEUNDAE-ZONE-05",
+      "zoneName": "출입구 주변 (구남로)",
+      "zoneType": "entrance",
+      "totalAreaSquareMeters": 300,
+      "excludedAreaSquareMeters": 60,
+      "effectiveAreaSquareMeters": 240,
+      "linkedCctvIds": ["BSN-HAEUNDAE-001"],
+      "notes": "출입구 집중 동선. 주차장 연계 혼잡 감지 필요"
+    },
+    {
+      "zoneId": "HAEUNDAE-ZONE-06",
+      "zoneName": "샤워장·편의시설 주변",
+      "zoneType": "facility",
+      "totalAreaSquareMeters": 400,
+      "excludedAreaSquareMeters": 130,
+      "effectiveAreaSquareMeters": 270,
+      "linkedCctvIds": ["BSN-HAEUNDAE-002"],
+      "notes": "건물 footprint 제외"
+    },
+    {
+      "zoneId": "HAEUNDAE-ZONE-07",
+      "zoneName": "임시 행사장 주변",
+      "zoneType": "event",
+      "totalAreaSquareMeters": 600,
+      "excludedAreaSquareMeters": 120,
+      "effectiveAreaSquareMeters": 480,
+      "linkedCctvIds": [],
+      "notes": "행사 시 임시 설치. 유효 면적 재계산 필요"
+    },
+    {
+      "zoneId": "HAEUNDAE-PARKING-MIPO",
+      "zoneName": "미포공영주차장",
+      "zoneType": "facility",
+      "totalAreaSquareMeters": 2800,
+      "excludedAreaSquareMeters": 0,
+      "effectiveAreaSquareMeters": 2800,
+      "linkedCctvIds": ["BSN-HAEUNDAE-003"],
+      "linkedParkingId": "BSP-MIPO-001",
+      "notes": "97면. 부산시설공단 운영. 실시간 주차 API 연동 가능",
+      "thresholdOverrides": {
+        "congestionStartDensity": 0.6,
+        "criticalDensity": 0.8,
+        "highRiskDensity": 1.0
+      }
+    },
+    {
+      "zoneId": "HAEUNDAE-PARKING-GWANGJANG",
+      "zoneName": "해운대광장주차장",
+      "zoneType": "facility",
+      "totalAreaSquareMeters": 3500,
+      "excludedAreaSquareMeters": 0,
+      "effectiveAreaSquareMeters": 3500,
+      "linkedCctvIds": [],
+      "linkedParkingId": "BSP-HSGWANG-001",
+      "notes": "120면. 부산시설공단 운영. 해수욕장 정문 인접",
+      "thresholdOverrides": {
+        "congestionStartDensity": 0.6,
+        "criticalDensity": 0.8,
+        "highRiskDensity": 1.0
+      }
+    },
+    {
+      "zoneId": "HAEUNDAE-PARKING-DONGBAEKSA",
+      "zoneName": "동백사거리공영주차장",
+      "zoneType": "facility",
+      "totalAreaSquareMeters": 1000,
+      "excludedAreaSquareMeters": 0,
+      "effectiveAreaSquareMeters": 1000,
+      "linkedCctvIds": [],
+      "linkedParkingId": "BSP-DONGBAEK-SA-001",
+      "notes": "36면. 부산시설공단 운영",
+      "thresholdOverrides": {
+        "congestionStartDensity": 0.6,
+        "criticalDensity": 0.8,
+        "highRiskDensity": 1.0
+      }
+    }
+  ]
+}

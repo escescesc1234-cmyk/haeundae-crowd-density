@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WaveGuard — 운영 도구</title>
+  <link rel="stylesheet" href="/waveguard.css" />
+  <link rel="stylesheet" href="/admin-ops.css" />
+  <script src="/waveguard-settings.js"></script>
+</head>
+<body>
+  <div class="app" data-role="admin">
+    <header class="app-header">
+      <a class="back" href="/admin.html" title="돌아가기">‹</a>
+      <span class="logo"><span class="mark">😊</span> WaveGuard (관리자)</span>
+      <a class="gear" href="/admin-settings.html" title="설정">⚙️</a>
+    </header>
+
+    <div class="content">
+      <div>
+        <h1 class="ops-page-title">운영 도구</h1>
+        <p class="ops-page-sub">현장 운영과 위험 대응 관리</p>
+      </div>
+
+      <div class="ops-grid">
+        <article class="ops-tile">
+          <div class="ops-tile-ico">📋</div>
+          <h3>수동 측정 입력</h3>
+          <p>현장에서 측정한 밀도를 수동으로 입력합니다.</p>
+          <div class="ops-tile-action">
+            <button type="button" class="ops-btn-primary" id="btnOpenManual">입력하기</button>
+          </div>
+        </article>
+
+        <article class="ops-tile" id="telecomTile">
+          <div class="ops-tile-ico">📡</div>
+          <h3>통신사 혼잡도</h3>
+          <p>통신사 데이터를 실시간으로 수집하여 혼잡도를 확인합니다.</p>
+          <p class="ops-status" id="telecomStatus">
+            <span class="dot"></span><span id="telecomStatusText">확인 중…</span>
+          </p>
+        </article>
+
+        <article class="ops-tile">
+          <div class="ops-tile-ico">🔔</div>
+          <h3>공공적 시민 알림</h3>
+          <p>위험 상황 발생 시 관광객에게 사고 알림을 전송합니다.</p>
+          <label class="ops-toggle" title="시민 알림">
+            <input type="checkbox" id="publicNotifyToggle" checked />
+            <span></span>
+          </label>
+        </article>
+
+        <article class="ops-tile">
+          <div class="ops-tile-ico">🛡️</div>
+          <h3>데이터 품질</h3>
+          <p>수집된 데이터의 품질을 모니터링합니다.</p>
+          <div class="ops-quality-row">
+            <div class="ops-ring-wrap">
+              <div class="ops-ring" id="qualityRing" style="--pct: 99%"></div>
+              <span id="qualityPct">99%</span>
+            </div>
+            <span class="ops-pill-good" id="qualityBadge">양호</span>
+          </div>
+        </article>
+      </div>
+
+      <section class="card ops-chart-card">
+        <div class="card-head">
+          <h3><span>📊</span> 시간대별 예측 그래프</h3>
+          <button type="button" class="gear" id="btnChartInfo" title="새로고침" style="border:none;background:none;cursor:pointer">ⓘ</button>
+        </div>
+        <p class="ops-chart-sub">오늘 시간대별 혼잡도 예측 (단위: 상대 지수 0~5)</p>
+        <div class="ops-chart-wrap">
+          <div class="ops-chart-y" aria-hidden="true">
+            <span>5</span><span>4</span><span>3</span><span>2</span><span>1</span><span>0</span>
+          </div>
+          <div class="ops-chart-bars" id="opsChartBars"></div>
+        </div>
+      </section>
+
+      <section class="card ops-threshold-card">
+        <div class="card-head">
+          <span>🎚️</span>
+          <div>
+            <h3>임계값 설정 (운영 기준)</h3>
+            <p class="ops-chart-sub" style="margin:0">혼잡·위험 임계값을 수정할 수 있습니다.</p>
+          </div>
+        </div>
+        <div class="ops-threshold-row">
+          <label for="tCongestionLv">혼잡 기준</label>
+          <select id="tCongestionLv">
+            <option value="1">수준(Lv) 1</option>
+            <option value="2">수준(Lv) 2</option>
+            <option value="3" selected>수준(Lv) 3</option>
+            <option value="4">수준(Lv) 4</option>
+          </select>
+        </div>
+        <div class="ops-threshold-row">
+          <label for="tRiskLv">위험 기준</label>
+          <select id="tRiskLv">
+            <option value="1">수준(Lv) 1</option>
+            <option value="2">수준(Lv) 2</option>
+            <option value="3">수준(Lv) 3</option>
+            <option value="4" selected>수준(Lv) 4</option>
+          </select>
+        </div>
+        <div class="ops-save-row">
+          <button type="button" id="btnSaveThresholds">임계값 저장</button>
+        </div>
+        <p class="ops-chart-sub" id="thresholdMsg" style="margin-top:0.5rem;text-align:center"></p>
+      </section>
+
+      <details class="ops-advanced">
+        <summary>고급 운영 (예측·알림·구역 상세)</summary>
+        <div class="panel" id="advancedPanel"></div>
+      </details>
+
+      <p class="ops-footnote">
+        본 화면의 세부 수치는 시스템 실제 운영 결과와 다를 수 있습니다.
+      </p>
+    </div>
+  </div>
+
+  <dialog class="ops-dialog" id="manualDialog">
+    <div class="ops-dialog-inner">
+      <h2>수동 측정 입력</h2>
+      <div class="ops-form-grid">
+        <label>구역
+          <input type="text" id="zoneDisplay" readonly value="중앙 구역" />
+          <input type="hidden" id="zoneId" />
+        </label>
+        <label>인원수
+          <input id="people" type="number" min="0" step="1" value="520" />
+        </label>
+        <label>유효 면적(㎡, 비우면 기본값)
+          <input id="area" type="number" min="0" step="0.1" placeholder="자동" />
+        </label>
+        <label>신뢰도
+          <input id="confidence" type="number" min="0" max="1" step="0.01" value="0.91" />
+        </label>
+        <label>즉시 판정(히스테리시스 생략)
+          <select id="skipHyst">
+            <option value="true">예 (테스트)</option>
+            <option value="false">아니오 (운영)</option>
+          </select>
+        </label>
+        <label>알림 발송
+          <select id="notifyOn">
+            <option value="true">예</option>
+            <option value="false">아니오</option>
+          </select>
+        </label>
+      </div>
+      <pre id="lastResult" class="meta" style="white-space:pre-wrap;margin-top:0.5rem;font-size:0.68rem"></pre>
+      <div class="ops-dialog-actions">
+        <button type="button" class="secondary" id="btnCloseManual">닫기</button>
+        <button type="button" class="primary" id="btnAnalyze">분석 실행</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="/admin-ops.js"></script>
+</body>
+</html>

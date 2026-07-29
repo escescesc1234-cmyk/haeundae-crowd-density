@@ -1,0 +1,42 @@
+[
+  {
+    "eventId": "EVT-2026-07-18-FEST",
+    "name": "광안리 여름 음악 축제",
+    "date": "2026-07-18",
+    "startTime": "13:00",
+    "endTime": "18:00",
+    "locationName": "광안리 백사장 중앙",
+    "zoneId": "GWANGALLI-ZONE-CENTER",
+    "expectedParticipants": 4200,
+    "distanceToZoneMeters": 120,
+    "eventType": "festival",
+    "source": "mock"
+  },
+  {
+    "eventId": "EVT-2026-07-16-FIRE",
+    "name": "해변 불꽃 행사",
+    "date": "2026-07-16",
+    "startTime": "14:00",
+    "endTime": "16:00",
+    "locationName": "광안리 중앙",
+    "zoneId": "GWANGALLI-ZONE-CENTER",
+    "expectedParticipants": 5000,
+    "distanceToZoneMeters": 80,
+    "eventType": "fireworks",
+    "source": "mock"
+  },
+  {
+    "eventId": "EVT-2026-07-19-CANCEL",
+    "name": "취소된 해변 마켓",
+    "date": "2026-07-19",
+    "startTime": "11:00",
+    "endTime": "15:00",
+    "locationName": "중앙 구역 인근",
+    "zoneId": "GWANGALLI-ZONE-CENTER",
+    "expectedParticipants": 1800,
+    "distanceToZoneMeters": 60,
+    "eventType": "market",
+    "isCancelled": true,
+    "source": "mock"
+  }
+]

@@ -1,0 +1,202 @@
+[
+  {
+    "date": "2025-07-17",
+    "zoneId": "GWANGALLI-ZONE-CENTER",
+    "timeSlot": "09:00",
+    "people": 280,
+    "density": 0.25,
+    "riskLevel": "안전",
+    "source": "mock_history",
+    "availableAt": "2025-07-17T10:00:00.000Z"
+  },
+  {
+    "date": "2025-07-17",
+    "zoneId": "GWANGALLI-ZONE-CENTER",
+    "timeSlot": "10:00",
+    "people": 640,
+    "density": 0.57,
+    "riskLevel": "안전",
+    "source": "mock_history",
+    "availableAt": "2025-07-17T11:00:00.000Z"
+  },
+  {
+    "date": "2025-07-17",
+    "zoneId": "GWANGALLI-ZONE-CENTER",
+    "timeSlot": "11:00",
+    "people": 1600,
+    "density": 1.43,
+    "riskLevel": "안전",
+    "source": "mock_history",
+    "availableAt": "2025-07-17T12:00:00.000Z"
+  },
+  {
+    "date": "2025-07-17",
+    "zoneId": "GWANGALLI-ZONE-CENTER",
+    "timeSlot": "12:00",
+    "people": 2650,
+    "density": 2.37,
+    "riskLevel": "안전",
+    "source": "mock_history",
+    "availableAt": "2025-07-17T13:00:00.000Z"
+  },
+  {
+    "date": "2025-07-17",
+    "zoneId": "GWANGALLI-ZONE-CENTER",
+    "timeSlot": "13:00",
+    "people": 3780,
+    "density": 3.38,
+    "riskLevel": "안전",
+    "source": "mock_history",
+    "availableAt": "2025-07-17T14:00:00.000Z"
+  },
+  {
+    "date": "2025-07-17",
+    "zoneId": "GWANGALLI-ZONE-CENTER",
+    "timeSlot": "14:00",
+    "people": 4920,
+    "density": 4.39,
+    "riskLevel": "혼잡",
+    "source": "mock_history",
+    "availableAt": "2025-07-17T15:00:00.000Z"
+  },
+  {
+    "date": "2025-07-17",
+    "zoneId": "GWANGALLI-ZONE-CENTER",
+    "timeSlot": "15:00",
+    "people": 5480,
+    "density": 4.89,
+    "riskLevel": "혼잡",
+    "source": "mock_history",
+    "availableAt": "2025-07-17T16:00:00.000Z"
+  },
+  {
+    "date": "2025-07-17",
+    "zoneId": "GWANGALLI-ZONE-CENTER",
+    "timeSlot": "16:00",
+    "people": 4700,
+    "density": 4.2,
+    "riskLevel": "혼잡",
+    "source": "mock_history",
+    "availableAt": "2025-07-17T17:00:00.000Z"
+  },
+  {
+    "date": "2025-07-17",
+    "zoneId": "GWANGALLI-ZONE-CENTER",
+    "timeSlot": "17:00",
+    "people": 3200,
+    "density": 2.86,
+    "riskLevel": "안전",
+    "source": "mock_history",
+    "availableAt": "2025-07-17T18:00:00.000Z"
+  },
+  {
+    "date": "2026-07-16",
+    "zoneId": "GWANGALLI-ZONE-CENTER",
+    "timeSlot": "09:00",
+    "people": 320,
+    "density": 0.29,
+    "riskLevel": "안전",
+    "source": "mock_history",
+    "availableAt": "2026-07-16T10:00:00.000Z"
+  },
+  {
+    "date": "2026-07-16",
+    "zoneId": "GWANGALLI-ZONE-CENTER",
+    "timeSlot": "10:00",
+    "people": 900,
+    "density": 0.8,
+    "riskLevel": "안전",
+    "source": "mock_history",
+    "availableAt": "2026-07-16T11:00:00.000Z"
+  },
+  {
+    "date": "2026-07-16",
+    "zoneId": "GWANGALLI-ZONE-CENTER",
+    "timeSlot": "11:00",
+    "people": 2100,
+    "density": 1.88,
+    "riskLevel": "안전",
+    "source": "mock_history",
+    "availableAt": "2026-07-16T12:00:00.000Z"
+  },
+  {
+    "date": "2026-07-16",
+    "zoneId": "GWANGALLI-ZONE-CENTER",
+    "timeSlot": "12:00",
+    "people": 3600,
+    "density": 3.21,
+    "riskLevel": "안전",
+    "source": "mock_history",
+    "availableAt": "2026-07-16T13:00:00.000Z"
+  },
+  {
+    "date": "2026-07-16",
+    "zoneId": "GWANGALLI-ZONE-CENTER",
+    "timeSlot": "13:00",
+    "people": 4700,
+    "density": 4.2,
+    "riskLevel": "혼잡",
+    "source": "mock_history",
+    "availableAt": "2026-07-16T14:00:00.000Z"
+  },
+  {
+    "date": "2026-07-16",
+    "zoneId": "GWANGALLI-ZONE-CENTER",
+    "timeSlot": "14:00",
+    "people": 6100,
+    "density": 5.45,
+    "riskLevel": "혼잡",
+    "source": "mock_history",
+    "availableAt": "2026-07-16T15:00:00.000Z"
+  },
+  {
+    "date": "2026-07-16",
+    "zoneId": "GWANGALLI-ZONE-CENTER",
+    "timeSlot": "15:00",
+    "people": 7050,
+    "density": 6.29,
+    "riskLevel": "위험",
+    "source": "mock_history",
+    "availableAt": "2026-07-16T16:00:00.000Z"
+  },
+  {
+    "date": "2026-07-16",
+    "zoneId": "GWANGALLI-ZONE-CENTER",
+    "timeSlot": "16:00",
+    "people": 5600,
+    "density": 5,
+    "riskLevel": "혼잡",
+    "source": "mock_history",
+    "availableAt": "2026-07-16T17:00:00.000Z"
+  },
+  {
+    "date": "2026-07-16",
+    "zoneId": "GWANGALLI-ZONE-CENTER",
+    "timeSlot": "17:00",
+    "people": 3900,
+    "density": 3.48,
+    "riskLevel": "안전",
+    "source": "mock_history",
+    "availableAt": "2026-07-16T18:00:00.000Z"
+  },
+  {
+    "date": "2026-07-15",
+    "zoneId": "GWANGALLI-ZONE-CENTER",
+    "timeSlot": "14:00",
+    "people": 1700,
+    "density": 1.52,
+    "riskLevel": "안전",
+    "source": "mock_history",
+    "availableAt": "2026-07-15T15:00:00.000Z"
+  },
+  {
+    "date": "2026-07-15",
+    "zoneId": "GWANGALLI-ZONE-CENTER",
+    "timeSlot": "15:00",
+    "people": 1550,
+    "density": 1.38,
+    "riskLevel": "안전",
+    "source": "mock_history",
+    "availableAt": "2026-07-15T16:00:00.000Z"
+  }
+]

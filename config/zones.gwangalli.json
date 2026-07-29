@@ -1,0 +1,16 @@
+{
+  "beachId": "GWANGALLI",
+  "beachName": "광안리 해수욕장",
+  "disclaimer": "중앙 구역 단일 모니터링. 유효 면적은 현장 측량 후 갱신하세요.",
+  "zones": [
+    {
+      "zoneId": "GWANGALLI-ZONE-CENTER",
+      "zoneName": "중앙 구역",
+      "zoneType": "sand_beach",
+      "totalAreaSquareMeters": 3500,
+      "excludedAreaSquareMeters": 400,
+      "effectiveAreaSquareMeters": 3100,
+      "notes": "광안리 해수욕장 중앙(대표) 구역 — CCTV·SK 혼잡도·운영 도구는 이 구역만 사용"
+    }
+  ]
+}

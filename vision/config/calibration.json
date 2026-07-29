@@ -1,0 +1,17 @@
+{
+  "description": "현장 실측 후 srcPixels/dstMeters 를 채우고 fieldVerified 를 true 로 바꾸세요.",
+  "fieldVerified": false,
+  "srcPixels": [
+    [120.0, 80.0],
+    [900.0, 80.0],
+    [950.0, 180.0],
+    [80.0, 180.0]
+  ],
+  "dstMeters": [
+    [0.0, 0.0],
+    [40.0, 0.0],
+    [40.0, 25.0],
+    [0.0, 25.0]
+  ],
+  "notes": "DST 는 예시값. 줄자/도면 실측 전까지 앱은 구역 카탈로그 면적을 사용합니다."
+}

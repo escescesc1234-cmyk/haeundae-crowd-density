@@ -1,0 +1,19 @@
+node_modules/
+dist/
+config/thresholds.runtime.json
+config/threshold-changes.json
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# Python / vision
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+vision/**/yolov8*.pt
+vision/**/yolo*.pt
+vision/output/
+*.pt

@@ -1,0 +1,17 @@
+{
+  "sameLevelCooldownSeconds": 300,
+  "minLevelDurationSeconds": 120,
+  "dangerRepeatIntervalSeconds": 180,
+  "managerAckTimeoutSeconds": 120,
+  "downgradeConfirmSeconds": 120,
+  "minDensityChangeForResend": 0.5,
+  "maxRetryAttempts": 3,
+  "retryIntervalSeconds": 30,
+  "touristProximityRadiusMeters": 200,
+  "adjacentZoneRadiusMeters": 150,
+  "rapidRisePerSecond": 0.1,
+  "emergencyDensityMultiplier": 1.25,
+  "staleDataSeconds": 60,
+  "minimumConfidence": 0.7,
+  "disclaimer": "알림은 AI 분석 참고 정보이며 사고 발생 사실을 단정하지 않습니다."
+}

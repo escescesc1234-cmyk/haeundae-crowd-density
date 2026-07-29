@@ -1,0 +1,63 @@
+{
+  "skipHysteresis": true,
+  "note": "테스트 데이터 — 중앙 구역(GWANGALLI-ZONE-CENTER)만 사용",
+  "measurements": [
+    {
+      "zoneId": "GWANGALLI-ZONE-CENTER",
+      "detectedPeople": 0,
+      "measuredAt": "2026-07-17T08:00:00.000Z",
+      "confidence": 1,
+      "dataSource": "test"
+    },
+    {
+      "zoneId": "GWANGALLI-ZONE-CENTER",
+      "detectedPeople": 12090,
+      "measuredAt": "2026-07-17T08:01:00.000Z",
+      "confidence": 0.95,
+      "dataSource": "test",
+      "comment": "3100㎡ × 3.9 ≈ 12090 → 안전"
+    },
+    {
+      "zoneId": "GWANGALLI-ZONE-CENTER",
+      "detectedPeople": 12400,
+      "effectiveAreaSquareMeters": 3100,
+      "measuredAt": "2026-07-17T08:02:00.000Z",
+      "confidence": 0.92,
+      "dataSource": "test",
+      "comment": "4.0명/㎡ → 혼잡"
+    },
+    {
+      "zoneId": "GWANGALLI-ZONE-CENTER",
+      "detectedPeople": 15190,
+      "effectiveAreaSquareMeters": 3100,
+      "measuredAt": "2026-07-17T08:06:00.000Z",
+      "confidence": 0.93,
+      "dataSource": "test",
+      "comment": "4.9명/㎡ → 혼잡"
+    },
+    {
+      "zoneId": "GWANGALLI-ZONE-CENTER",
+      "detectedPeople": 18600,
+      "effectiveAreaSquareMeters": 3100,
+      "measuredAt": "2026-07-17T08:07:00.000Z",
+      "confidence": 0.93,
+      "dataSource": "test",
+      "comment": "6.0명/㎡ → 위험"
+    },
+    {
+      "zoneId": "GWANGALLI-ZONE-CENTER",
+      "detectedPeople": null,
+      "measuredAt": "2026-07-17T08:08:00.000Z",
+      "dataSource": "test",
+      "comment": "인원 누락"
+    },
+    {
+      "zoneId": "GWANGALLI-ZONE-CENTER",
+      "detectedPeople": 200,
+      "measuredAt": "2026-07-17T08:09:00.000Z",
+      "confidence": 0.4,
+      "dataSource": "test",
+      "comment": "낮은 신뢰도"
+    }
+  ]
+}

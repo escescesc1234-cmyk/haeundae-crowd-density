@@ -1,0 +1,19 @@
+{
+  "provider": "sk_puzzle_place_congestion",
+  "notes": [
+    "광안리 중심 좌표(위도 35.1532, 경도 129.1186) 한 지점만 측정합니다.",
+    "이 지점이 혼잡하면 광안리 해수욕장 전체를 혼잡으로 판정합니다.",
+    "poiId는 SK open API > 장소 혼잡도 > 데이터 제공 가능 장소에서 광안리 기준으로 확인·교체하세요.",
+    "lat/lng를 넣으면 해당 좌표 주변 350m×350m 격자 혼잡도(type 2)를 조회합니다."
+  ],
+  "places": [
+    {
+      "zoneId": "GWANGALLI-ZONE-CENTER",
+      "zoneName": "중앙 구역",
+      "poiId": "10067845",
+      "poiName": "광안리 중심 혼잡도",
+      "lat": 35.1532,
+      "lng": 129.1186
+    }
+  ]
+}

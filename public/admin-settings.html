@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WaveGuard 설정 — 관리자</title>
+  <link rel="stylesheet" href="/waveguard.css" />
+  <script src="/waveguard-settings.js"></script>
+</head>
+<body>
+  <div class="app" data-role="admin-settings" id="settingsRoot">
+    <header class="app-header">
+      <span class="logo"><span class="mark">😊</span> WaveGuard 관리자</span>
+      <a class="gear" href="/" title="돌아가기" id="settingsBack">←</a>
+    </header>
+
+    <div class="content">
+      <section class="settings-list" data-settings-menu>
+        <a class="settings-item" href="#notifications" data-open-panel="notifications">
+          <span class="left">🔔 알림</span><span class="arrow">›</span>
+        </a>
+        <a class="settings-item" href="#accessibility" data-open-panel="accessibility">
+          <span class="left">Aa 화면 및 접근성</span><span class="arrow">›</span>
+        </a>
+        <a class="settings-item" href="#beach" data-open-panel="beach">
+          <span class="left">🏖 관리 해수욕장</span><span class="arrow">›</span>
+        </a>
+        <a class="settings-item" href="#permissions" data-open-panel="permissions">
+          <span class="left">👥 관리자 계정 및 권한</span><span class="arrow">›</span>
+        </a>
+        <a class="settings-item" href="#privacy" data-open-panel="privacy">
+          <span class="left">🛡 개인정보 및 보안</span><span class="arrow">›</span>
+        </a>
+        <a class="settings-item" href="#support" data-open-panel="support">
+          <span class="left">🎧 고객 지원</span><span class="arrow">›</span>
+        </a>
+        <a class="settings-item" href="#about" data-open-panel="about">
+          <span class="left">ℹ 앱 정보</span><span class="arrow">›</span>
+        </a>
+        <a class="settings-item" href="#account" data-open-panel="account">
+          <span class="left">👤 계정 변경</span><span class="arrow">›</span>
+        </a>
+        <a class="settings-item danger-item" href="#logout" data-open-panel="logout" data-settings-require-login>
+          <span class="left">↪ 로그아웃</span><span class="arrow">›</span>
+        </a>
+      </section>
+
+      <!-- 알림 -->
+      <section data-settings-panel="notifications" hidden>
+        <div class="settings-back-row">
+          <a href="#" data-close-panel>‹ 설정</a>
+        </div>
+        <h2 class="settings-panel-title">알림</h2>
+        <p class="settings-panel-sub">관리자 경보와 시민 알림 연동을 설정합니다.</p>
+        <div class="settings-card">
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <strong>위험 경보</strong>
+              <span>위험 등급·긴급 상황 알림</span>
+            </div>
+            <label class="settings-toggle"><input type="checkbox" id="nDanger" /><span></span></label>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <strong>임계 밀도 경고</strong>
+              <span>혼잡·임계 밀도 도달 시</span>
+            </div>
+            <label class="settings-toggle"><input type="checkbox" id="nCongestion" /><span></span></label>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <strong>시스템 경고</strong>
+              <span>데이터 품질·API 오류</span>
+            </div>
+            <label class="settings-toggle"><input type="checkbox" id="nSystem" /><span></span></label>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <strong>공공적 시민 알림</strong>
+              <span>운영 도구 토글과 동기화</span>
+            </div>
+            <label class="settings-toggle"><input type="checkbox" id="nPublic" /><span></span></label>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <strong>푸시 알림 허용</strong>
+              <span>브라우저 알림 권한</span>
+            </div>
+            <label class="settings-toggle"><input type="checkbox" id="nPush" /><span></span></label>
+          </div>
+        </div>
+        <button type="button" class="settings-btn secondary" id="btnTestNotify">테스트 경보 보내기</button>
+      </section>
+
+      <!-- 접근성 -->
+      <section data-settings-panel="accessibility" hidden>
+        <div class="settings-back-row">
+          <a href="#" data-close-panel>‹ 설정</a>
+        </div>
+        <h2 class="settings-panel-title">화면 및 접근성</h2>
+        <p class="settings-panel-sub">글자 크기와 대비를 조정합니다.</p>
+        <div class="settings-card">
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <strong>글자 크기</strong>
+              <span id="fontScaleHint">보통</span>
+            </div>
+            <select class="settings-select" id="fontScale">
+              <option value="md">보통</option>
+              <option value="lg">크게</option>
+              <option value="xl">더 크게</option>
+            </select>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <strong>고대비 모드</strong>
+              <span>경계선·텍스트 대비 강화</span>
+            </div>
+            <label class="settings-toggle"><input type="checkbox" id="highContrast" /><span></span></label>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <strong>움직임 줄이기</strong>
+              <span>애니메이션·전환 효과 최소화</span>
+            </div>
+            <label class="settings-toggle"><input type="checkbox" id="reduceMotion" /><span></span></label>
+          </div>
+        </div>
+      </section>
+
+      <!-- 관리 해수욕장 -->
+      <section data-settings-panel="beach" hidden>
+        <div class="settings-back-row">
+          <a href="#" data-close-panel>‹ 설정</a>
+        </div>
+        <h2 class="settings-panel-title">관리 해수욕장</h2>
+        <p class="settings-panel-sub">현재 모니터링 중인 해수욕장입니다.</p>
+        <div class="settings-info-block">
+          <h4 id="beachName">광안리 해수욕장</h4>
+          <p id="beachIdMeta">ID: GWANGALLI</p>
+          <p style="margin-top:0.45rem" id="beachZonesMeta">구역 정보를 불러오는 중…</p>
+        </div>
+        <a class="settings-btn" href="/admin-ops.html" style="display:block;text-align:center;text-decoration:none">운영 도구 열기</a>
+        <button type="button" class="settings-btn secondary" id="btnRefreshBeach">구역 정보 새로고침</button>
+      </section>
+
+      <!-- 계정 및 권한 -->
+      <section data-settings-panel="permissions" hidden>
+        <div class="settings-back-row">
+          <a href="#" data-close-panel>‹ 설정</a>
+        </div>
+        <h2 class="settings-panel-title">관리자 계정 및 권한</h2>
+        <p class="settings-panel-sub">데모용 권한 프로필입니다.</p>
+        <div class="settings-info-block">
+          <h4 id="permName">구역 관리자</h4>
+          <p>관리자 ID: <span id="permId">mgr-gwangalli-01</span></p>
+          <ul style="margin-top:0.5rem">
+            <li>구역 밀도 조회 · 수동 입력</li>
+            <li>임계값 조정 · 알림 확인</li>
+            <li>시민 알림 발송 연동</li>
+          </ul>
+        </div>
+        <div class="settings-card">
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <strong>권한 등급</strong>
+              <span>저장 후 표시에 반영</span>
+            </div>
+            <select class="settings-select" id="permission">
+              <option value="구역 관리자">구역 관리자</option>
+              <option value="운영 총괄">운영 총괄</option>
+              <option value="관제 모니터">관제 모니터</option>
+            </select>
+          </div>
+        </div>
+        <button type="button" class="settings-btn" id="btnSavePerm">권한 저장</button>
+      </section>
+
+      <!-- 개인정보 -->
+      <section data-settings-panel="privacy" hidden>
+        <div class="settings-back-row">
+          <a href="#" data-close-panel>‹ 설정</a>
+        </div>
+        <h2 class="settings-panel-title">개인정보 및 보안</h2>
+        <div class="settings-info-block">
+          <h4>보안 안내</h4>
+          <ul>
+            <li>운영 화면은 현장 담당자만 사용하세요.</li>
+            <li>임계값·수동 입력은 감사 로그에 남을 수 있습니다.</li>
+            <li>데모에서는 로컬 브라우저에만 설정이 저장됩니다.</li>
+          </ul>
+        </div>
+        <div class="settings-card">
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <strong>이용 통계 공유</strong>
+              <span>앱 개선용 익명 통계</span>
+            </div>
+            <label class="settings-toggle"><input type="checkbox" id="shareAnalytics" /><span></span></label>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <strong>역할 기억</strong>
+              <span>다음 접속 시 관리자 유지</span>
+            </div>
+            <label class="settings-toggle"><input type="checkbox" id="rememberRole" /><span></span></label>
+          </div>
+        </div>
+        <button type="button" class="settings-btn warn" id="btnClearLocal">이 기기 설정 초기화</button>
+      </section>
+
+      <!-- 지원 -->
+      <section data-settings-panel="support" hidden>
+        <div class="settings-back-row">
+          <a href="#" data-close-panel>‹ 설정</a>
+        </div>
+        <h2 class="settings-panel-title">고객 지원</h2>
+        <div class="settings-info-block">
+          <h4>운영 지원</h4>
+          <ul>
+            <li>SK 혼잡도 한도 초과 시 캐시·실측으로 폴백됩니다.</li>
+            <li>기상청 API 키·SK 앱키는 서버 `.env`에서 관리합니다.</li>
+          </ul>
+        </div>
+        <div class="settings-card" style="padding:0.85rem 0.95rem">
+          <label style="font-size:0.82rem;font-weight:700;color:#203448">문의 내용
+            <textarea class="settings-textarea" id="supportMsg" placeholder="장애·권한·데이터 이슈"></textarea>
+          </label>
+          <button type="button" class="settings-btn" id="btnSupportSend">문의 저장</button>
+        </div>
+      </section>
+
+      <!-- 앱 정보 -->
+      <section data-settings-panel="about" hidden>
+        <div class="settings-back-row">
+          <a href="#" data-close-panel>‹ 설정</a>
+        </div>
+        <h2 class="settings-panel-title">앱 정보</h2>
+        <div class="settings-info-block">
+          <h4>WaveGuard 관리자</h4>
+          <p>밀집도 모니터링 · 운영 대응</p>
+          <p style="margin-top:0.5rem"><strong>버전</strong> 1.0.0</p>
+          <p><strong>대상</strong> <span id="aboutBeach">광안리 해수욕장</span></p>
+        </div>
+      </section>
+
+      <!-- 계정 변경 -->
+      <section data-settings-panel="account" hidden>
+        <div class="settings-back-row">
+          <a href="#" data-close-panel>‹ 설정</a>
+        </div>
+        <h2 class="settings-panel-title">계정 변경</h2>
+        <div class="settings-card" style="padding:0.85rem 0.95rem">
+          <label style="font-size:0.82rem;font-weight:700;color:#203448">표시 이름
+            <input class="settings-input" id="displayName" type="text" maxlength="40" placeholder="예: 현장 관리자" />
+          </label>
+          <label style="display:block;margin-top:0.75rem;font-size:0.82rem;font-weight:700;color:#203448">이메일(선택)
+            <input class="settings-input" id="email" type="email" placeholder="admin@example.com" />
+          </label>
+          <button type="button" class="settings-btn" id="btnSaveAccount">저장</button>
+        </div>
+        <button type="button" class="settings-btn secondary" id="btnSwitchTourist">관광객 화면으로 전환</button>
+        <button type="button" class="settings-btn secondary" id="btnRoleSelect">역할 선택 화면</button>
+      </section>
+
+      <!-- 로그아웃 -->
+      <section data-settings-panel="logout" data-settings-require-login hidden>
+        <div class="settings-back-row">
+          <a href="#" data-close-panel>‹ 설정</a>
+        </div>
+        <h2 class="settings-panel-title">로그아웃</h2>
+        <p class="settings-panel-sub">관리자 세션을 종료합니다.</p>
+        <button type="button" class="settings-btn danger" id="btnLogout">로그아웃</button>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const S = WaveGuardSettings;
+      S.mountPanelNav(document.getElementById("settingsRoot"));
+      S.mountSettingsBack("admin");
+      S.applySettingsLoginOnlyUI();
+
+      const settings = S.load();
+      document.getElementById("aboutBeach").textContent = settings.beach.beachName;
+      document.getElementById("beachName").textContent = settings.beach.beachName;
+      document.getElementById("beachIdMeta").textContent = `ID: ${settings.beach.beachId}`;
+      document.getElementById("displayName").value = settings.account.displayName || "";
+      document.getElementById("email").value = settings.account.email || "";
+      document.getElementById("permId").textContent = settings.account.adminId;
+      document.getElementById("permName").textContent = settings.account.permission;
+      document.getElementById("permission").value = settings.account.permission;
+      document.getElementById("fontScaleHint").textContent = S.fontScaleLabel(settings.accessibility.fontScale);
+
+      S.bindToggle(document.getElementById("nDanger"), "notifications.danger");
+      S.bindToggle(document.getElementById("nCongestion"), "notifications.congestion");
+      S.bindToggle(document.getElementById("nSystem"), "notifications.system");
+      S.bindToggle(document.getElementById("nPublic"), "notifications.publicCitizen", () =>
+        S.toast("시민 알림 설정이 저장되었습니다"),
+      );
+      S.bindToggle(document.getElementById("nPush"), "notifications.push", async (next) => {
+        if (next.notifications.push && "Notification" in window) {
+          const perm = await Notification.requestPermission();
+          S.toast(perm === "granted" ? "푸시 권한이 허용되었습니다" : "푸시 권한이 거부되었습니다");
+        }
+      });
+      S.bindSelect(document.getElementById("fontScale"), "accessibility.fontScale", (next) => {
+        document.getElementById("fontScaleHint").textContent = S.fontScaleLabel(next.accessibility.fontScale);
+        S.toast("글자 크기가 적용되었습니다");
+      });
+      S.bindToggle(document.getElementById("highContrast"), "accessibility.highContrast", () =>
+        S.toast("고대비 설정이 적용되었습니다"),
+      );
+      S.bindToggle(document.getElementById("reduceMotion"), "accessibility.reduceMotion");
+      S.bindToggle(document.getElementById("shareAnalytics"), "privacy.shareAnalytics");
+      S.bindToggle(document.getElementById("rememberRole"), "privacy.rememberRole");
+
+      async function refreshBeach() {
+        try {
+          const catalog = await (await fetch("/api/zones")).json();
+          document.getElementById("beachName").textContent = catalog.beachName;
+          document.getElementById("beachIdMeta").textContent = `ID: ${catalog.beachId}`;
+          document.getElementById("beachZonesMeta").textContent =
+            `관리 구역 ${catalog.zones?.length ?? 0}개 · ${catalog.disclaimer || ""}`.slice(0, 120);
+          document.getElementById("aboutBeach").textContent = catalog.beachName;
+          S.update({
+            beach: { beachId: catalog.beachId, beachName: catalog.beachName },
+          });
+        } catch (e) {
+          document.getElementById("beachZonesMeta").textContent = `불러오기 실패: ${e.message}`;
+        }
+      }
+
+      document.getElementById("btnRefreshBeach").onclick = refreshBeach;
+      refreshBeach();
+
+      document.getElementById("btnSavePerm").onclick = () => {
+        const permission = document.getElementById("permission").value;
+        S.update({ account: { permission } });
+        document.getElementById("permName").textContent = permission;
+        S.toast("권한이 저장되었습니다");
+      };
+
+      document.getElementById("btnTestNotify").onclick = async () => {
+        const s = S.load();
+        if (!s.notifications.danger && !s.notifications.system) {
+          S.toast("위험·시스템 알림이 모두 꺼져 있습니다");
+          return;
+        }
+        if ("Notification" in window && Notification.permission === "granted" && s.notifications.push) {
+          new Notification("WaveGuard 관리자", {
+            body: "테스트 경보입니다. 현장 확인 후 대응하세요.",
+          });
+        }
+        S.toast("테스트 경보를 기록했습니다");
+      };
+
+      document.getElementById("btnClearLocal").onclick = () => {
+        if (!confirm("이 기기의 WaveGuard 설정을 초기화할까요?")) return;
+        localStorage.removeItem(S.STORAGE_KEY);
+        localStorage.removeItem("wgPublicNotify");
+        S.applyAccessibility(S.DEFAULTS.accessibility);
+        S.toast("설정이 초기화되었습니다");
+        location.reload();
+      };
+
+      document.getElementById("btnSupportSend").onclick = () => {
+        const msg = document.getElementById("supportMsg").value.trim();
+        if (!msg) {
+          S.toast("문의 내용을 입력해 주세요");
+          return;
+        }
+        const list = JSON.parse(localStorage.getItem("waveguard.support") || "[]");
+        list.unshift({ at: new Date().toISOString(), role: "admin", msg });
+        localStorage.setItem("waveguard.support", JSON.stringify(list.slice(0, 20)));
+        document.getElementById("supportMsg").value = "";
+        S.toast("문의가 저장되었습니다");
+      };
+
+      document.getElementById("btnSaveAccount").onclick = () => {
+        S.update({
+          account: {
+            displayName: document.getElementById("displayName").value.trim(),
+            email: document.getElementById("email").value.trim(),
+          },
+        });
+        S.toast("계정 정보가 저장되었습니다");
+      };
+
+      document.getElementById("btnSwitchTourist").onclick = () => {
+        S.login("tourist");
+        S.setSettingsReturn("/tourist.html");
+        location.href = "/tourist.html";
+      };
+      document.getElementById("btnRoleSelect").onclick = () => {
+        S.goRoleSelect();
+      };
+      document.getElementById("btnLogout").onclick = () => {
+        S.goHomeAfterLogout();
+      };
+    })();
+  </script>
+</body>
+</html>

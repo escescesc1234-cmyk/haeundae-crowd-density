@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WaveGuard 설정 — 관광객</title>
+  <link rel="stylesheet" href="/waveguard.css" />
+  <script src="/waveguard-settings.js"></script>
+</head>
+<body>
+  <div class="app" data-role="tourist-settings" id="settingsRoot">
+    <header class="app-header">
+      <span class="logo"><span class="mark">😊</span> WaveGuard</span>
+      <a class="gear" href="/" title="돌아가기" id="settingsBack">←</a>
+    </header>
+
+    <div class="content">
+      <section class="settings-list" data-settings-menu>
+        <a class="settings-item" href="#notifications" data-open-panel="notifications">
+          <span class="left">🔔 알림</span><span class="arrow">›</span>
+        </a>
+        <a class="settings-item" href="#accessibility" data-open-panel="accessibility">
+          <span class="left">Aa 화면 및 접근성</span><span class="arrow">›</span>
+        </a>
+        <a class="settings-item" href="#privacy" data-open-panel="privacy">
+          <span class="left">🛡 개인정보 및 보안</span><span class="arrow">›</span>
+        </a>
+        <a class="settings-item" href="#support" data-open-panel="support">
+          <span class="left">🎧 고객 지원</span><span class="arrow">›</span>
+        </a>
+        <a class="settings-item" href="#about" data-open-panel="about">
+          <span class="left">ℹ 앱 정보</span><span class="arrow">›</span>
+        </a>
+        <a class="settings-item" href="#account" data-open-panel="account">
+          <span class="left">👤 계정 변경</span><span class="arrow">›</span>
+        </a>
+        <a class="settings-item danger-item" href="#logout" data-open-panel="logout" data-settings-require-login>
+          <span class="left">↪ 로그아웃</span><span class="arrow">›</span>
+        </a>
+      </section>
+
+      <!-- 알림 -->
+      <section data-settings-panel="notifications" hidden>
+        <div class="settings-back-row">
+          <a href="#" data-close-panel>‹ 설정</a>
+        </div>
+        <h2 class="settings-panel-title">알림</h2>
+        <p class="settings-panel-sub">위험·혼잡 안내를 받을 조건을 선택합니다.</p>
+        <div class="settings-card">
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <strong>위험 알림</strong>
+              <span>위험 등급 발생 시 즉시 안내</span>
+            </div>
+            <label class="settings-toggle"><input type="checkbox" id="nDanger" /><span></span></label>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <strong>혼잡(주의) 안내</strong>
+              <span>붐비는 시간대 사전 안내</span>
+            </div>
+            <label class="settings-toggle"><input type="checkbox" id="nCongestion" /><span></span></label>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <strong>날씨 알림</strong>
+              <span>강수·폭염 등 기상 변화</span>
+            </div>
+            <label class="settings-toggle"><input type="checkbox" id="nWeather" /><span></span></label>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <strong>푸시 알림 허용</strong>
+              <span>브라우저 알림 권한 요청</span>
+            </div>
+            <label class="settings-toggle"><input type="checkbox" id="nPush" /><span></span></label>
+          </div>
+        </div>
+        <button type="button" class="settings-btn secondary" id="btnTestNotify">테스트 알림 보내기</button>
+      </section>
+
+      <!-- 화면 및 접근성 -->
+      <section data-settings-panel="accessibility" hidden>
+        <div class="settings-back-row">
+          <a href="#" data-close-panel>‹ 설정</a>
+        </div>
+        <h2 class="settings-panel-title">화면 및 접근성</h2>
+        <p class="settings-panel-sub">글자 크기와 대비를 조정합니다. 모든 화면에 즉시 적용됩니다.</p>
+        <div class="settings-card">
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <strong>글자 크기</strong>
+              <span id="fontScaleHint">보통</span>
+            </div>
+            <select class="settings-select" id="fontScale">
+              <option value="md">보통</option>
+              <option value="lg">크게</option>
+              <option value="xl">더 크게</option>
+            </select>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <strong>고대비 모드</strong>
+              <span>경계선·텍스트 대비 강화</span>
+            </div>
+            <label class="settings-toggle"><input type="checkbox" id="highContrast" /><span></span></label>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <strong>움직임 줄이기</strong>
+              <span>애니메이션·전환 효과 최소화</span>
+            </div>
+            <label class="settings-toggle"><input type="checkbox" id="reduceMotion" /><span></span></label>
+          </div>
+        </div>
+      </section>
+
+      <!-- 개인정보 -->
+      <section data-settings-panel="privacy" hidden>
+        <div class="settings-back-row">
+          <a href="#" data-close-panel>‹ 설정</a>
+        </div>
+        <h2 class="settings-panel-title">개인정보 및 보안</h2>
+        <p class="settings-panel-sub">WaveGuard는 얼굴 인식·개인 신원을 사용하지 않습니다.</p>
+        <div class="settings-info-block">
+          <h4>수집·이용 안내</h4>
+          <ul>
+            <li>구역 밀집도·위험 등급은 집계·익명 데이터입니다.</li>
+            <li>설정값은 이 기기의 브라우저에만 저장됩니다.</li>
+            <li>서버에 계정 비밀번호를 전송하지 않습니다(데모).</li>
+          </ul>
+        </div>
+        <div class="settings-card">
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <strong>이용 통계 공유</strong>
+              <span>앱 개선용 익명 통계(로컬 플래그)</span>
+            </div>
+            <label class="settings-toggle"><input type="checkbox" id="shareAnalytics" /><span></span></label>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-text">
+              <strong>역할 기억</strong>
+              <span>다음에 관광객/관리자 선택 유지</span>
+            </div>
+            <label class="settings-toggle"><input type="checkbox" id="rememberRole" /><span></span></label>
+          </div>
+        </div>
+        <button type="button" class="settings-btn warn" id="btnClearLocal">이 기기 설정 초기화</button>
+      </section>
+
+      <!-- 고객 지원 -->
+      <section data-settings-panel="support" hidden>
+        <div class="settings-back-row">
+          <a href="#" data-close-panel>‹ 설정</a>
+        </div>
+        <h2 class="settings-panel-title">고객 지원</h2>
+        <p class="settings-panel-sub">문의·오류 제보를 남길 수 있습니다.</p>
+        <div class="settings-info-block">
+          <h4>자주 묻는 질문</h4>
+          <ul>
+            <li>지도 색은 밀집·SK 혼잡도를 참고한 등급입니다.</li>
+            <li>위험 안내는 참고용이며 절대적 사고 예측이 아닙니다.</li>
+            <li>오프라인에서는 마지막 캐시 데이터가 표시될 수 있습니다.</li>
+          </ul>
+        </div>
+        <div class="settings-card" style="padding:0.85rem 0.95rem">
+          <label style="font-size:0.82rem;font-weight:700;color:#203448">문의 내용
+            <textarea class="settings-textarea" id="supportMsg" placeholder="증상·발생 시각을 적어 주세요"></textarea>
+          </label>
+          <button type="button" class="settings-btn" id="btnSupportSend">문의 저장</button>
+        </div>
+        <p class="settings-meta">데모: 문의는 이 기기에만 저장됩니다.</p>
+      </section>
+
+      <!-- 앱 정보 -->
+      <section data-settings-panel="about" hidden>
+        <div class="settings-back-row">
+          <a href="#" data-close-panel>‹ 설정</a>
+        </div>
+        <h2 class="settings-panel-title">앱 정보</h2>
+        <div class="settings-info-block">
+          <h4>WaveGuard</h4>
+          <p>해수욕장 인구 밀집도 예측 · 안전 안내</p>
+          <p style="margin-top:0.5rem"><strong>버전</strong> 1.0.0</p>
+          <p><strong>대상 해수욕장</strong> <span id="aboutBeach">광안리 해수욕장</span></p>
+          <p style="margin-top:0.65rem;font-size:0.75rem;color:#7a8796">
+            표시 등급은 현장 판단을 돕는 참고 정보입니다.
+          </p>
+        </div>
+      </section>
+
+      <!-- 계정 변경 -->
+      <section data-settings-panel="account" hidden>
+        <div class="settings-back-row">
+          <a href="#" data-close-panel>‹ 설정</a>
+        </div>
+        <h2 class="settings-panel-title">계정 변경</h2>
+        <p class="settings-panel-sub">표시 이름과 역할을 변경합니다.</p>
+        <div class="settings-card" style="padding:0.85rem 0.95rem">
+          <label style="font-size:0.82rem;font-weight:700;color:#203448">표시 이름
+            <input class="settings-input" id="displayName" type="text" maxlength="40" placeholder="예: 방문객" />
+          </label>
+          <label style="display:block;margin-top:0.75rem;font-size:0.82rem;font-weight:700;color:#203448">이메일(선택)
+            <input class="settings-input" id="email" type="email" placeholder="optional@example.com" />
+          </label>
+          <button type="button" class="settings-btn" id="btnSaveAccount">저장</button>
+        </div>
+        <button type="button" class="settings-btn secondary" id="btnSwitchAdmin">관리자 화면으로 전환</button>
+        <button type="button" class="settings-btn secondary" id="btnRoleSelect">역할 선택 화면</button>
+      </section>
+
+      <!-- 로그아웃 -->
+      <section data-settings-panel="logout" data-settings-require-login hidden>
+        <div class="settings-back-row">
+          <a href="#" data-close-panel>‹ 설정</a>
+        </div>
+        <h2 class="settings-panel-title">로그아웃</h2>
+        <p class="settings-panel-sub">세션을 종료하고 시작 화면으로 이동합니다. 접근성 설정은 기기에 남습니다.</p>
+        <button type="button" class="settings-btn danger" id="btnLogout">로그아웃</button>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const S = WaveGuardSettings;
+      S.mountPanelNav(document.getElementById("settingsRoot"));
+      S.mountSettingsBack("tourist");
+      S.applySettingsLoginOnlyUI();
+
+      const settings = S.load();
+      document.getElementById("aboutBeach").textContent = settings.beach.beachName;
+      document.getElementById("displayName").value = settings.account.displayName || "";
+      document.getElementById("email").value = settings.account.email || "";
+      document.getElementById("fontScaleHint").textContent = S.fontScaleLabel(settings.accessibility.fontScale);
+
+      S.bindToggle(document.getElementById("nDanger"), "notifications.danger");
+      S.bindToggle(document.getElementById("nCongestion"), "notifications.congestion");
+      S.bindToggle(document.getElementById("nWeather"), "notifications.weather");
+      S.bindToggle(document.getElementById("nPush"), "notifications.push", async (next) => {
+        if (next.notifications.push && "Notification" in window) {
+          const perm = await Notification.requestPermission();
+          S.toast(perm === "granted" ? "푸시 권한이 허용되었습니다" : "푸시 권한이 거부되었습니다");
+        }
+      });
+      S.bindSelect(document.getElementById("fontScale"), "accessibility.fontScale", (next) => {
+        document.getElementById("fontScaleHint").textContent = S.fontScaleLabel(next.accessibility.fontScale);
+        S.toast("글자 크기가 적용되었습니다");
+      });
+      S.bindToggle(document.getElementById("highContrast"), "accessibility.highContrast", () =>
+        S.toast("고대비 설정이 적용되었습니다"),
+      );
+      S.bindToggle(document.getElementById("reduceMotion"), "accessibility.reduceMotion");
+      S.bindToggle(document.getElementById("shareAnalytics"), "privacy.shareAnalytics");
+      S.bindToggle(document.getElementById("rememberRole"), "privacy.rememberRole");
+
+      document.getElementById("btnTestNotify").onclick = async () => {
+        const s = S.load();
+        if (!s.notifications.push) {
+          S.toast("푸시 알림이 꺼져 있습니다");
+          return;
+        }
+        if (!("Notification" in window)) {
+          S.toast("이 브라우저는 알림을 지원하지 않습니다");
+          return;
+        }
+        if (Notification.permission !== "granted") {
+          const p = await Notification.requestPermission();
+          if (p !== "granted") {
+            S.toast("알림 권한이 필요합니다");
+            return;
+          }
+        }
+        new Notification("WaveGuard", {
+          body: "테스트 알림입니다. 위험 시 이와 같이 안내됩니다.",
+        });
+        S.toast("테스트 알림을 보냈습니다");
+      };
+
+      document.getElementById("btnClearLocal").onclick = () => {
+        if (!confirm("이 기기의 WaveGuard 설정을 초기화할까요?")) return;
+        localStorage.removeItem(S.STORAGE_KEY);
+        localStorage.removeItem("wgPublicNotify");
+        S.applyAccessibility(S.DEFAULTS.accessibility);
+        S.toast("설정이 초기화되었습니다");
+        location.reload();
+      };
+
+      document.getElementById("btnSupportSend").onclick = () => {
+        const msg = document.getElementById("supportMsg").value.trim();
+        if (!msg) {
+          S.toast("문의 내용을 입력해 주세요");
+          return;
+        }
+        const list = JSON.parse(localStorage.getItem("waveguard.support") || "[]");
+        list.unshift({ at: new Date().toISOString(), role: "tourist", msg });
+        localStorage.setItem("waveguard.support", JSON.stringify(list.slice(0, 20)));
+        document.getElementById("supportMsg").value = "";
+        S.toast("문의가 저장되었습니다");
+      };
+
+      document.getElementById("btnSaveAccount").onclick = () => {
+        S.update({
+          account: {
+            displayName: document.getElementById("displayName").value.trim(),
+            email: document.getElementById("email").value.trim(),
+          },
+        });
+        S.toast("계정 정보가 저장되었습니다");
+      };
+
+      document.getElementById("btnSwitchAdmin").onclick = () => {
+        S.login("admin");
+        S.setSettingsReturn("/admin.html");
+        location.href = "/admin.html";
+      };
+      document.getElementById("btnRoleSelect").onclick = () => {
+        S.goRoleSelect();
+      };
+      document.getElementById("btnLogout").onclick = () => {
+        S.goHomeAfterLogout();
+      };
+    })();
+  </script>
+</body>
+</html>

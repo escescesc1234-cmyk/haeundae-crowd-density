@@ -1,0 +1,14 @@
+{
+  "congestionStartDensity": 4.0,
+  "criticalDensity": 5.0,
+  "highRiskDensity": 6.0,
+  "measurementWindowSeconds": 30,
+  "minimumConfidence": 0.7,
+  "hysteresisMargin": 0.2,
+  "minDurationSecondsForUpgrade": 10,
+  "minDurationSecondsForDowngrade": 15,
+  "immediateHighRiskMultiplier": 1.25,
+  "rapidRisePerSecond": 0.15,
+  "staleDataSeconds": 120,
+  "disclaimer": "본 임계값은 현장 검증 전 초기 참고값이며, 법적·공식적 절대 기준이 아닙니다."
+}

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WaveGuard</title>
+  <link rel="stylesheet" href="/waveguard.css" />
+  <script src="/waveguard-settings.js"></script>
+</head>
+<body>
+  <div class="app landing">
+    <header class="app-header">
+      <span class="logo"><span class="mark">😊</span> WaveGuard</span>
+      <a class="gear" href="/tourist-settings.html" title="설정" id="openSettings">⚙️</a>
+    </header>
+    <div class="content">
+      <section class="landing-hero">
+        <h2>WaveGuard</h2>
+        <p>해수욕장 인구 밀집도 예측하기</p>
+      </section>
+      <section class="role-actions">
+        <a class="role-btn" href="/tourist.html" id="btnTourist">
+          <span>관광객 <small>안전 지도 · 방문 안내</small></span>
+          <span>›</span>
+        </a>
+        <a class="role-btn" href="/admin.html" id="btnAdmin">
+          <span>관리자 <small>위험도 · 운영 모니터링</small></span>
+          <span>›</span>
+        </a>
+      </section>
+    </div>
+  </div>
+  <script>
+    document.getElementById("openSettings").addEventListener("click", () => {
+      WaveGuardSettings.setSettingsReturn("/");
+      WaveGuardSettings.setSettingsContext("landing");
+    });
+    document.getElementById("btnTourist").addEventListener("click", () => {
+      WaveGuardSettings.login("tourist");
+    });
+    document.getElementById("btnAdmin").addEventListener("click", () => {
+      WaveGuardSettings.login("admin");
+    });
+  </script>
+</body>
+</html>

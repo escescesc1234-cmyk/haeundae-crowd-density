@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WaveGuard 관리자 — 광안리</title>
+  <link rel="stylesheet" href="/waveguard.css" />
+  <script src="/waveguard-settings.js"></script>
+</head>
+<body>
+  <div class="app" data-role="admin">
+    <header class="app-header">
+      <span class="logo"><span class="mark">😊</span> WaveGuard 관리자</span>
+      <a class="gear" href="/admin-settings.html" title="설정" id="openSettings">⚙️</a>
+    </header>
+
+    <div class="content">
+      <div class="error-banner" id="errorBanner"></div>
+
+      <section class="stats-row" id="statsRow">
+        <article class="stat-card">
+          <p class="stat-label">오늘 날짜</p>
+          <p class="stat-value" id="statDate">--</p>
+        </article>
+        <article class="stat-card">
+          <p class="stat-label">현재 날씨</p>
+          <p class="stat-value"><span id="statWeatherIcon">☀️</span> <span id="statWeather">--</span></p>
+        </article>
+        <article class="stat-card">
+          <p class="stat-label">오늘 예상 방문자 수</p>
+          <p class="stat-value"><span class="people-ico">👥</span> <span id="statVisitors">--</span></p>
+        </article>
+      </section>
+
+      <section class="card risk-card" id="riskCard">
+        <div class="risk-ico">🛡️</div>
+        <div class="risk-body">
+          <p class="risk-label">현재 위험도</p>
+          <p class="risk-pct"><span id="riskPct">--</span><small>%</small></p>
+          <p class="risk-level">위험도: <strong id="riskLevel">--</strong></p>
+        </div>
+        <p class="risk-msg" id="riskMsg">불러오는 중...</p>
+      </section>
+
+      <section class="card">
+        <h3 class="section-title">혼잡도·위험도 예측</h3>
+        <div class="pred-list" id="predList"></div>
+      </section>
+
+      <section class="card map-card">
+        <div class="map-head">
+          <h3>📍 <span id="beachName">광안리 해수욕장</span></h3>
+          <span class="chev">▾</span>
+        </div>
+        <div class="map-frame">
+          <svg id="beachMap" viewBox="0 0 360 250" width="100%" role="img" aria-label="광안리 해수욕장 관리 지도">
+            <rect x="0" y="0" width="360" height="92" fill="#f6f2e8" />
+            <g id="zoneWedges"></g>
+            <path d="M0,250 L0,205 Q90,190 180,198 Q270,206 360,196 L360,250 Z" fill="#3f8fe0" />
+            <path d="M0,250 L0,220 Q120,208 240,216 Q320,221 360,214 L360,250 Z" fill="#2f7bd0" opacity="0.85" />
+            <g font-size="10" font-weight="700" fill="#24344a">
+              <g transform="translate(26,30)">
+                <rect x="-6" y="-13" rx="9" width="78" height="20" fill="#fff" stroke="#dce4ec" />
+                <text x="4" y="1">🌉 광안대교</text>
+              </g>
+              <g transform="translate(146,20)">
+                <rect x="-6" y="-13" rx="9" width="76" height="20" fill="#fff" stroke="#dce4ec" />
+                <text x="4" y="1">🚇 광안역</text>
+              </g>
+              <g transform="translate(258,34)">
+                <rect x="-6" y="-13" rx="9" width="84" height="20" fill="#fff" stroke="#dce4ec" />
+                <text x="4" y="1">☕ 카페거리</text>
+              </g>
+            </g>
+          </svg>
+        </div>
+        <a class="map-cta" id="mapCta" href="/admin-ops.html">운영 도구로 이동 &gt;</a>
+        <p class="map-hint">수동 입력·임계값·알림은 운영 도구에서 확인하세요</p>
+        <div class="zone-list" id="zoneList"></div>
+      </section>
+
+      <p class="footnote">
+        AI 분석 결과는 참고용입니다. 위험 등급 발생 시 CCTV·현장 확인 후 조치하세요.
+        SK 혼잡도 API는 기본 비활성입니다. 테스트는 <a href="/admin-ops.html">운영 도구</a>에서 연결하세요.
+      </p>
+    </div>
+  </div>
+  <script src="/waveguard-shared.js"></script>
+  <script>
+    document.getElementById("openSettings").addEventListener("click", () => {
+      WaveGuardSettings.setSettingsReturn("/admin.html");
+      WaveGuardSettings.setSettingsContext("app");
+    });
+    WaveGuard.mount("admin");
+  </script>
+</body>
+</html>

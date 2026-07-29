@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WaveGuard 관광객용 — 광안리</title>
+  <link rel="stylesheet" href="/waveguard.css" />
+  <script src="/waveguard-settings.js"></script>
+</head>
+<body>
+  <div class="app" data-role="tourist">
+    <header class="app-header">
+      <span class="logo"><span class="mark">😊</span> WaveGuard</span>
+      <a class="gear" href="/tourist-settings.html" title="설정" id="openSettings">⚙️</a>
+    </header>
+
+    <div class="content">
+      <div class="error-banner" id="errorBanner"></div>
+
+      <section class="stats-row" id="statsRow">
+        <article class="stat-card">
+          <p class="stat-label">오늘 날짜</p>
+          <p class="stat-value" id="statDate">--</p>
+        </article>
+        <article class="stat-card">
+          <p class="stat-label">현재 날씨</p>
+          <p class="stat-value"><span id="statWeatherIcon">☀️</span> <span id="statWeather">--</span></p>
+        </article>
+        <article class="stat-card">
+          <p class="stat-label">오늘 예상 방문자 수</p>
+          <p class="stat-value"><span class="people-ico">👥</span> <span id="statVisitors">--</span></p>
+        </article>
+      </section>
+
+      <section class="card">
+        <h3 class="section-title">혼잡도·위험도 예측</h3>
+        <div class="pred-list" id="predList"></div>
+      </section>
+
+      <section class="card map-card">
+        <div class="map-head">
+          <h3>📍 <span id="beachName">광안리 해수욕장</span></h3>
+          <span class="chev">▾</span>
+        </div>
+        <div class="map-frame">
+          <svg id="beachMap" viewBox="0 0 360 250" width="100%" role="img" aria-label="광안리 해수욕장 지도">
+            <rect x="0" y="0" width="360" height="92" fill="#f6f2e8" />
+            <g id="zoneWedges"></g>
+            <path d="M0,250 L0,205 Q90,190 180,198 Q270,206 360,196 L360,250 Z" fill="#3f8fe0" />
+            <path d="M0,250 L0,220 Q120,208 240,216 Q320,221 360,214 L360,250 Z" fill="#2f7bd0" opacity="0.85" />
+            <g font-size="10" font-weight="700" fill="#24344a">
+              <g transform="translate(26,30)">
+                <rect x="-6" y="-13" rx="9" width="78" height="20" fill="#fff" stroke="#dce4ec" />
+                <text x="4" y="1">🌉 광안대교</text>
+              </g>
+              <g transform="translate(146,20)">
+                <rect x="-6" y="-13" rx="9" width="76" height="20" fill="#fff" stroke="#dce4ec" />
+                <text x="4" y="1">🚇 광안역</text>
+              </g>
+              <g transform="translate(258,34)">
+                <rect x="-6" y="-13" rx="9" width="84" height="20" fill="#fff" stroke="#dce4ec" />
+                <text x="4" y="1">☕ 카페거리</text>
+              </g>
+            </g>
+          </svg>
+        </div>
+        <a class="map-cta" id="mapCta" href="#mapDetail">지도 크게 보기 &gt;</a>
+        <p class="map-hint">큰 화면에서 상세 정보를 확인하세요</p>
+        <div class="zone-list" id="zoneList"></div>
+      </section>
+
+      <p class="footnote">
+        표시되는 위험 등급은 현장 판단을 돕는 참고 정보입니다. 얼굴 인식·개인 신원 확인은 사용하지 않습니다.
+      </p>
+    </div>
+  </div>
+  <script src="/waveguard-shared.js"></script>
+  <script>
+    document.getElementById("openSettings").addEventListener("click", () => {
+      WaveGuardSettings.setSettingsReturn("/tourist.html");
+      WaveGuardSettings.setSettingsContext("app");
+    });
+    WaveGuard.mount("tourist");
+  </script>
+</body>
+</html>
