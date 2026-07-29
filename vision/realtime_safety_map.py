@@ -230,7 +230,7 @@ class LatestFrameStore:
             out = draw_warning_banners(out, alerts)
         return draw_bottom_clock(out)
 
-    def get_safety_jpeg(self, quality: int = 55) -> Optional[bytes]:
+    def get_safety_jpeg(self, quality: int = 80) -> Optional[bytes]:
         frame = self.compose_display_frame()
         if frame is None:
             return None
@@ -261,14 +261,14 @@ class LatestFrameStore:
         )
         return out
 
-    def get_yolo_jpeg(self, quality: int = 55) -> Optional[bytes]:
+    def get_yolo_jpeg(self, quality: int = 80) -> Optional[bytes]:
         frame = self.compose_yolo_frame()
         if frame is None:
             return None
         ok, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
         return buf.tobytes() if ok else None
 
-    def get_raw_jpeg(self, quality: int = 55) -> Optional[bytes]:
+    def get_raw_jpeg(self, quality: int = 80) -> Optional[bytes]:
         with self._lock:
             frame = None if self.raw is None else self.raw.copy()
         if frame is None:
@@ -417,7 +417,7 @@ def resolve_stream_url(source: str) -> str:
     """YouTube URL이면 yt-dlp로 실제 스트림 URL을 얻습니다."""
     if "youtube.com" in source or "youtu.be" in source:
         eprint(f"[stream] yt-dlp 해석 중: {source}")
-        # 낮은 해상도 우선 → 대역폭/디코드 지연 감소
+        # 4K(2160) 우선, 없으면 1440→1080→720 순으로 폴백
         attempts = [
             [
                 sys.executable,
@@ -427,7 +427,12 @@ def resolve_stream_url(source: str) -> str:
                 "--extractor-args",
                 "youtube:player_client=android",
                 "-f",
-                "bv*[height<=720]+ba/b[height<=720]/best[height<=720]/bv*[height<=480]+ba/best[height<=480]/best",
+                (
+                    "bv*[height<=2160]+ba/b[height<=2160]/"
+                    "bv*[height<=1440]+ba/b[height<=1440]/"
+                    "bv*[height<=1080]+ba/b[height<=1080]/"
+                    "best[height<=2160]/best[height<=1080]/best"
+                ),
                 "-g",
                 source,
             ],
@@ -437,7 +442,10 @@ def resolve_stream_url(source: str) -> str:
                 "yt_dlp",
                 "--no-warnings",
                 "-f",
-                "best[height<=720]/best[height<=480]/best",
+                (
+                    "bestvideo[height<=2160]+bestaudio/"
+                    "best[height<=2160]/best[height<=1080]/best"
+                ),
                 "-g",
                 source,
             ],
