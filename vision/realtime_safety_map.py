@@ -81,10 +81,15 @@ SAHI_SLICE = 256
 SAHI_OVERLAP = 0.5
 SAHI_UPSCALE = 3.0
 SAHI_CONF = PERSON_PROPOSAL_CONF
-SAHI_MULTI_SCALES = (3.0, 2.5, 2.0)
-SAHI_MULTI_SLICES = (224, 256, 192)
+# CPU에서 1080p×고배율 멀티스케일은 슬라이스 수천 개 → 사실상 멈춤
+# PRECISE: 긴변 축소 + 단일 스케일로 "완료"를 우선 (FAST와 스케일 단위 락 공유)
+SAHI_MULTI_SCALES = (1.6,)
+SAHI_MULTI_SLICES = (384,)
 SAHI_NMS_IOU = 0.5
-SAHI_IMAGE_SIZE = 960
+SAHI_IMAGE_SIZE = 640
+PRECISE_MAX_EDGE = 960
+PRECISE_OVERLAP = 0.25
+PRECISE_COOLDOWN_SEC = 45.0  # 1회 보정 후 FAST에 양보
 # FAST 경로: 경량 SAHI (yolov8m, 1스케일·큰 슬라이스 → PRECISE보다 빠름)
 FAST_SAHI_MODEL_CANDIDATES = (
     "models/yolov8m_beach_ft.pt",
@@ -306,7 +311,6 @@ STORE_PRECISE = LatestFrameStore()
 # CPU에서 FAST·PRECISE 동시 추론 시 PyTorch/Ultralytics가 서로 굶김 → 직렬화
 INFER_LOCK = threading.Lock()
 PRECISE_WANT = threading.Event()  # PRECISE가 락을 원할 때 FAST가 양보
-PRECISE_COOLDOWN_SEC = 2.0  # PRECISE 1회 후 FAST에 양보하는 짧은 휴식
 _PRECISE_META_LOCK = threading.Lock()
 PRECISE_META: dict = {
     "state": "idle",  # idle | loading | running | ok | error
@@ -315,6 +319,7 @@ PRECISE_META: dict = {
     "inferMs": 0.0,
     "updatedAt": None,
     "lastError": None,
+    "progress": None,
 }
 
 
@@ -809,6 +814,22 @@ def detect_people_sahi(
     return boxes
 
 
+def fit_long_edge(frame_bgr: np.ndarray, max_edge: int) -> tuple[np.ndarray, float]:
+    """긴변을 max_edge 이하로 축소. 반환: (resized_or_same, scale_to_original_divisor).
+
+    resized 좌표 * (1/scale) = 원본 좌표. scale==1이면 원본.
+    """
+    h, w = frame_bgr.shape[:2]
+    long = max(h, w)
+    if max_edge <= 0 or long <= max_edge:
+        return frame_bgr, 1.0
+    r = float(max_edge) / float(long)
+    nw = max(1, int(round(w * r)))
+    nh = max(1, int(round(h * r)))
+    out = cv2.resize(frame_bgr, (nw, nh), interpolation=cv2.INTER_AREA)
+    return out, r
+
+
 def detect_people_sahi_max(
     detection_model: AutoDetectionModel,
     frame_bgr: np.ndarray,
@@ -817,26 +838,66 @@ def detect_people_sahi_max(
     scales=SAHI_MULTI_SCALES,
     slices=SAHI_MULTI_SLICES,
     nms_iou: float = SAHI_NMS_IOU,
+    max_edge: int = PRECISE_MAX_EDGE,
+    on_scale=None,
 ):
     """멀티스케일 SAHI → NMS → 고확신 person만 확정.
 
+    CPU에서 원본 고해상도×고배율은 사실상 멈추므로, 긴변을 max_edge로 줄인 뒤
+    탐지하고 박스를 원본 좌표로 복원합니다.
+    on_scale(i, n, scale, phase) : phase='before'|'after', 스케일 사이 FAST 양보용.
     반환: (centers, confirmed_boxes, rejected_boxes)
-    밀도·안전지도는 confirmed만 사용합니다.
     """
-    h, w = frame_bgr.shape[:2]
+    h0, w0 = frame_bgr.shape[:2]
+    infer, r = fit_long_edge(frame_bgr, max_edge)
+    if r != 1.0:
+        roi_infer = cv2.resize(
+            roi_mask,
+            (infer.shape[1], infer.shape[0]),
+            interpolation=cv2.INTER_NEAREST,
+        )
+        eprint(
+            f"[precise] input resize {w0}x{h0} → {infer.shape[1]}x{infer.shape[0]} "
+            f"(max_edge={max_edge})"
+        )
+    else:
+        roi_infer = roi_mask
+
+    scale_list = list(scales) if scales else (2.0,)
+    slice_list = list(slices) if slices else (SAHI_SLICE,)
+    n = min(len(scale_list), len(slice_list))
     merged_boxes: list = []
-    for scale, slice_size in zip(scales, slices):
+    for i in range(n):
+        scale = float(scale_list[i])
+        slice_size = int(slice_list[i])
+        if on_scale is not None:
+            on_scale(i, n, scale, "before")
+        t0 = time.perf_counter()
         boxes = detect_people_sahi(
             detection_model,
-            frame_bgr,
-            roi_mask,
+            infer,
+            roi_infer,
             upscale=scale,
             slice_size=slice_size,
             overlap=overlap,
         )
+        ms = (time.perf_counter() - t0) * 1000.0
+        if r != 1.0:
+            inv = 1.0 / r
+            boxes = [
+                (x1 * inv, y1 * inv, x2 * inv, y2 * inv, s)
+                for x1, y1, x2, y2, s in boxes
+            ]
         merged_boxes.extend(boxes)
+        eprint(
+            f"[precise] scale[{i + 1}/{n}] x{scale} slice={slice_size} "
+            f"boxes={len(boxes)} ms={ms:.0f}"
+        )
+        if on_scale is not None:
+            on_scale(i, n, scale, "after")
+
     kept = nms_boxes(merged_boxes, iou_thresh=nms_iou)
-    confirmed, rejected = split_person_candidates(kept, frame_hw=(h, w))
+    confirmed, rejected = split_person_candidates(kept, frame_hw=(h0, w0))
     return boxes_to_centers(confirmed), confirmed, rejected
 
 
@@ -1249,21 +1310,22 @@ def precise_analyze_loop(
     cell_w: int = CELL_W,
     cell_h: int = CELL_H,
     conf: float = YOLO_CONF,
-    overlap: float = SAHI_OVERLAP,
+    overlap: float = PRECISE_OVERLAP,
 ):
     """정밀 경로: SAHI 멀티스케일 (백그라운드 보정).
 
-    FAST와 동시에 CPU 추론하면 서로 굶겨 영원히 끝나지 않으므로
-    INFER_LOCK으로 직렬화하고, PRECISE_WANT로 FAST가 양보하게 한다.
+    전체 멀티스케일을 한 락으로 묶으면 CPU에서 수십 분 동안 FAST가 멈춘다.
+    스케일마다 락을 잡고 풀어서 FAST와 번갈아 돈다.
     """
     device = resolve_device()
     precise_path = model_path
     eprint(f"[precise] SAHI 모델={precise_path} device={device}")
     eprint(
         f"[precise] multi-scale={SAHI_MULTI_SCALES} "
-        f"slices={SAHI_MULTI_SLICES} overlap={overlap} imgsz={SAHI_IMAGE_SIZE}"
+        f"slices={SAHI_MULTI_SLICES} overlap={overlap} "
+        f"imgsz={SAHI_IMAGE_SIZE} max_edge={PRECISE_MAX_EDGE}"
     )
-    set_precise_meta(state="loading", lastError=None)
+    set_precise_meta(state="loading", lastError=None, progress="model")
     try:
         with INFER_LOCK:
             sahi_model = AutoDetectionModel.from_pretrained(
@@ -1275,7 +1337,7 @@ def precise_analyze_loop(
             )
     except Exception as exc:
         eprint(f"[precise] model load FAILED: {exc}")
-        set_precise_meta(state="error", lastError=str(exc))
+        set_precise_meta(state="error", lastError=str(exc), progress=None)
         return
 
     stabilizer = TemporalPersonStabilizer(
@@ -1283,8 +1345,33 @@ def precise_analyze_loop(
         min_hits=TEMPORAL_MIN_HITS,
         iou_thresh=TEMPORAL_IOU,
     )
-    set_precise_meta(state="idle")
+    set_precise_meta(state="idle", progress=None)
     eprint("[precise] ready — waiting for frame + infer lock")
+
+    # 스케일 단위로 락을 잡기 위한 콜백 상태
+    _scale_lock_held = {"on": False}
+
+    def _on_scale(i: int, n: int, scale: float, phase: str):
+        if phase == "before":
+            set_precise_meta(
+                state="running",
+                progress=f"{i + 1}/{n} x{scale}",
+            )
+            PRECISE_WANT.set()
+            eprint(
+                f"[precise] scale[{i + 1}/{n}] x{scale} "
+                f"waiting for infer lock..."
+            )
+            INFER_LOCK.acquire()
+            _scale_lock_held["on"] = True
+            PRECISE_WANT.clear()
+            eprint(f"[precise] scale[{i + 1}/{n}] x{scale} start")
+        elif phase == "after":
+            if _scale_lock_held["on"]:
+                INFER_LOCK.release()
+                _scale_lock_held["on"] = False
+            # FAST가 한 사이클 돌 여유
+            time.sleep(0.2)
 
     while True:
         try:
@@ -1297,19 +1384,28 @@ def precise_analyze_loop(
             roi_mask, _ = make_roi_mask(h, w, LIVE_ROI)
             H = scale_homography_for_frame(w, h)
 
-            set_precise_meta(state="running")
-            PRECISE_WANT.set()
-            eprint("[precise] waiting for infer lock (FAST will yield)...")
-            with INFER_LOCK:
-                PRECISE_WANT.clear()
-                eprint("[precise] start multi-scale SAHI...")
-                t_inf = time.perf_counter()
+            set_precise_meta(state="running", progress="start", lastError=None)
+            eprint("[precise] start multi-scale SAHI (per-scale lock)...")
+            t_inf = time.perf_counter()
+            try:
                 _c, boxes, rejected = detect_people_sahi_max(
-                    sahi_model, raw, roi_mask, overlap=overlap
+                    sahi_model,
+                    raw,
+                    roi_mask,
+                    overlap=overlap,
+                    max_edge=PRECISE_MAX_EDGE,
+                    on_scale=_on_scale,
                 )
-                boxes = stabilizer.update(boxes)
-                centers = boxes_to_centers(boxes)
-                infer_ms = (time.perf_counter() - t_inf) * 1000.0
+            finally:
+                # 예외 시에도 락 누수 방지
+                if _scale_lock_held["on"]:
+                    INFER_LOCK.release()
+                    _scale_lock_held["on"] = False
+                PRECISE_WANT.clear()
+
+            boxes = stabilizer.update(boxes)
+            centers = boxes_to_centers(boxes)
+            infer_ms = (time.perf_counter() - t_inf) * 1000.0
 
             eprint(
                 f"[precise] done people={len(centers)} rejected={len(rejected)} "
@@ -1322,8 +1418,8 @@ def precise_analyze_loop(
                 inferMs=infer_ms,
                 updatedAt=datetime.now(timezone.utc).isoformat(),
                 lastError=None,
+                progress=None,
             )
-            # 메인 STORE 보정 + PRECISE 전용 스트림
             publish_detection_result(
                 raw,
                 centers,
@@ -1339,12 +1435,17 @@ def precise_analyze_loop(
             _publish_precise_frame(
                 raw, centers, boxes, rejected, roi_mask, H, cell_w, cell_h, infer_ms
             )
-            # FAST가 몇 사이클 돌 수 있도록 짧게 양보
             time.sleep(PRECISE_COOLDOWN_SEC)
         except Exception as exc:
             eprint(f"[precise] FAILED: {exc}")
-            set_precise_meta(state="error", lastError=str(exc))
+            if _scale_lock_held["on"]:
+                try:
+                    INFER_LOCK.release()
+                except RuntimeError:
+                    pass
+                _scale_lock_held["on"] = False
             PRECISE_WANT.clear()
+            set_precise_meta(state="error", lastError=str(exc), progress=None)
             time.sleep(5.0)
 
 
@@ -1673,16 +1774,28 @@ def create_app() -> Flask:
 
         const pr = r.precise || {};
         const prState = pr.state || 'idle';
-        if (prState === 'ok' && pr.updatedAt) {
+        const hasPrecise = !!pr.updatedAt;
+        if (hasPrecise) {
           document.getElementById('preciseVal').textContent =
             (pr.personCount ?? 0) + '명';
-          document.getElementById('preciseSub').textContent =
-            '보정 완료 · ' + Number(pr.inferMs || 0).toFixed(0) + 'ms · 기각 ' +
-            (pr.rejectedCount ?? 0);
+          if (prState === 'running' || prState === 'loading') {
+            document.getElementById('preciseSub').textContent =
+              '재보정 중 ' + (pr.progress || '') +
+              ' · 직전 ' + Number(pr.inferMs || 0).toFixed(0) + 'ms';
+          } else if (prState === 'error') {
+            document.getElementById('preciseSub').textContent =
+              '오류 · 직전 ' + (pr.personCount ?? 0) + '명 · ' + (pr.lastError || '');
+          } else {
+            document.getElementById('preciseSub').textContent =
+              '보정 완료 · ' + Number(pr.inferMs || 0).toFixed(0) + 'ms · 기각 ' +
+              (pr.rejectedCount ?? 0);
+          }
         } else if (prState === 'running' || prState === 'loading') {
           document.getElementById('preciseVal').textContent = '(보정 중)';
           document.getElementById('preciseSub').textContent =
-            prState === 'loading' ? '모델 로딩' : '멀티스케일 SAHI 진행 중';
+            prState === 'loading'
+              ? '모델 로딩'
+              : ('진행 ' + (pr.progress || '멀티스케일 SAHI'));
         } else if (prState === 'error') {
           document.getElementById('preciseVal').textContent = '오류';
           document.getElementById('preciseSub').textContent =
@@ -1837,7 +1950,7 @@ def main():
         )
         t_precise = threading.Thread(
             target=precise_analyze_loop,
-            args=(model_path, args.cell_w, args.cell_h, args.conf, args.overlap),
+            args=(model_path, args.cell_w, args.cell_h, args.conf, PRECISE_OVERLAP),
             daemon=True,
         )
         t_fast.start()
