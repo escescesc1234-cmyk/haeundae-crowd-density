@@ -91,6 +91,13 @@ FOAM_V_MIN = 0.72             # 밝기(HSV V) 하한
 FOAM_S_MAX = 0.25             # 채도(HSV S) 상한
 FOAM_REJECT_FRAC = 0.60       # 거품 비율 기각 기준
 FOAM_OVERRIDE_CONF = 0.55     # 이 확신 이상이면 거품 판정 무시
+# ── 튜브(class 1): 파인튜닝 모델 전용. 튜브는 물에서만 쓰므로 '사람 1명' 지표 ──
+# 기본 COCO 모델에는 tube 클래스가 없어 자동으로 비활성(이름 기반 판별).
+TUBE_CLASS_NAME = "tube"
+TUBE_MIN_CONF = 0.30
+TUBE_MIN_W_OVER_H = 0.7       # 튜브=둥근~가로형
+TUBE_MAX_W_OVER_H = 3.2
+TUBE_DUP_IOU = 0.25           # 확정 사람과 이만큼 겹치면 중복 집계 방지
 # 정확도 맥스 설정
 YOLO_IMGSZ = 1280
 YOLO_CONF = PERSON_PROPOSAL_CONF
@@ -803,9 +810,12 @@ def detect_people_fast(
     else:
         infer = clean
 
+    # 파인튜닝 모델(names에 tube 보유)일 때만 tube 클래스도 요청
+    names = getattr(model, "names", {}) or {}
+    tube_ok = str(names.get(1, "")).lower() == TUBE_CLASS_NAME
     results = model.predict(
         source=infer,
-        classes=[0],  # person only — 우산/의자 등 비사람 제외
+        classes=[0, 1] if tube_ok else [0],  # person(+tube) — 비사람 제외
         conf=conf,
         verbose=False,
         imgsz=imgsz,
@@ -815,13 +825,13 @@ def detect_people_fast(
         device=device,
     )
     boxes = []
+    tube_boxes = []
     r0 = results[0]
     if r0.boxes is None:
         return [], boxes
     for box in r0.boxes:
-        # 이중 확인: class id == 0
         cls_id = int(box.cls[0]) if box.cls is not None else -1
-        if cls_id != 0:
+        if cls_id != 0 and not (tube_ok and cls_id == 1):
             continue
         x1, y1, x2, y2 = box.xyxy[0].tolist()
         if scale != 1.0:
@@ -831,10 +841,12 @@ def detect_people_fast(
         cy = (y1 + y2) / 2.0
         ix, iy = int(round(cx)), int(round(cy))
         if 0 <= ix < w and 0 <= iy < h and roi_mask[iy, ix] > 0:
-            boxes.append((float(x1), float(y1), float(x2), float(y2), score))
+            item = (float(x1), float(y1), float(x2), float(y2), score)
+            (tube_boxes if cls_id == 1 else boxes).append(item)
     if not confirm:
         return boxes_to_centers(boxes), boxes
     confirmed, _ = split_person_candidates(boxes, frame_hw=(h, w), frame_bgr=clean)
+    confirmed = confirmed + filter_tubes(tube_boxes, (h, w), confirmed)
     return boxes_to_centers(confirmed), confirmed
 
 
@@ -948,12 +960,17 @@ def detect_people_sahi(
         verbose=0,
     )
 
-    # person 클래스만 후보 (우산·의자·배 등 비사람 제외)
+    # person(+파인튜닝 모델의 tube) 클래스만 후보 (우산·의자·배 등 비사람 제외)
+    # box = (x1, y1, x2, y2, score, cls)  cls: 0=person, 1=tube
     boxes = []
     for p in result.object_prediction_list:
         name = str(p.category.name).lower()
         cat_id = getattr(p.category, "id", None)
-        if name != "person" and cat_id not in (0, "0"):
+        if name == "person" or cat_id in (0, "0"):
+            cls = 0
+        elif name == TUBE_CLASS_NAME:  # 파인튜닝 모델만 이 클래스명을 가짐
+            cls = 1
+        else:
             continue
         x1 = float(p.bbox.minx) / scale
         y1 = float(p.bbox.miny) / scale
@@ -964,7 +981,7 @@ def detect_people_sahi(
         cy = (y1 + y2) / 2.0
         ix, iy = int(round(cx)), int(round(cy))
         if 0 <= ix < w and 0 <= iy < h and roi_mask[iy, ix] > 0:
-            boxes.append((x1, y1, x2, y2, score))
+            boxes.append((x1, y1, x2, y2, score, cls))
     return boxes
 
 
@@ -1039,8 +1056,8 @@ def detect_people_sahi_max(
         if r != 1.0:
             inv = 1.0 / r
             boxes = [
-                (x1 * inv, y1 * inv, x2 * inv, y2 * inv, s)
-                for x1, y1, x2, y2, s in boxes
+                (x1 * inv, y1 * inv, x2 * inv, y2 * inv, s, *rest)
+                for x1, y1, x2, y2, s, *rest in boxes
             ]
         merged_boxes.extend(boxes)
         eprint(
@@ -1051,9 +1068,11 @@ def detect_people_sahi_max(
             on_scale(i, n, scale, "after")
 
     kept = nms_boxes(merged_boxes, iou_thresh=nms_iou)
+    persons, tubes = _split_by_class(kept)
     confirmed, rejected = split_person_candidates(
-        kept, frame_hw=(h0, w0), frame_bgr=frame_bgr
+        persons, frame_hw=(h0, w0), frame_bgr=frame_bgr
     )
+    confirmed = confirmed + filter_tubes(tubes, (h0, w0), confirmed)
     return boxes_to_centers(confirmed), confirmed, rejected
 
 
@@ -1093,8 +1112,48 @@ def detect_people_sahi_band(
     )
     inv = 1.0 / down if down != 1.0 else 1.0
     out = []
-    for x1, yy1, x2, yy2, s in boxes:
-        out.append((x1 * inv, yy1 * inv + y0, x2 * inv, yy2 * inv + y0, s))
+    for x1, yy1, x2, yy2, s, *rest in boxes:
+        out.append((x1 * inv, yy1 * inv + y0, x2 * inv, yy2 * inv + y0, s, *rest))
+    return out
+
+
+def _split_by_class(boxes: list) -> tuple[list, list]:
+    """(x1,y1,x2,y2,score[,cls]) 목록을 (persons, tubes) 5-튜플로 분리."""
+    persons = []
+    tubes = []
+    for b in boxes:
+        cls = b[5] if len(b) >= 6 else 0
+        (tubes if cls == 1 else persons).append(tuple(b[:5]))
+    return persons, tubes
+
+
+def filter_tubes(tubes: list, frame_hw, confirmed_persons: list) -> list:
+    """튜브 박스 확정: 물 구역·형태·확신도 + 확정 사람과 중복 제거.
+
+    피서객은 물에서만 튜브를 쓰므로, 확정된 튜브는 '사람 1명' 지표로
+    confirmed에 합산한다. 이미 같은 자리에 확정 사람이 있으면 중복 방지.
+    """
+    if not tubes:
+        return []
+    h, w = frame_hw
+    out = []
+    for b in tubes:
+        x1, y1, x2, y2, s = b
+        if s < TUBE_MIN_CONF:
+            continue
+        cy = (y1 + y2) / 2.0 / max(1.0, float(h))
+        if not (WATER_Y_TOP <= cy <= WATER_Y_BOT):
+            continue  # 튜브는 물에서만 의미(모래 위 방치 튜브 제외)
+        bw = max(1.0, x2 - x1)
+        bh = max(1.0, y2 - y1)
+        ratio = bw / bh
+        if not (TUBE_MIN_W_OVER_H <= ratio <= TUBE_MAX_W_OVER_H):
+            continue
+        if (bw * bh) > PERSON_MAX_AREA_FRAC * w * h:
+            continue
+        if any(_box_iou(b, p) >= TUBE_DUP_IOU for p in confirmed_persons):
+            continue  # 그 자리 사람 이미 확정 → 이중 집계 방지
+        out.append(b)
     return out
 
 
@@ -1107,7 +1166,10 @@ def detect_people_sahi_fast(
     overlap: float = FAST_SAHI_OVERLAP,
     bands=FAST_BANDS,
 ):
-    """FAST: 원근 밴드별 경량 SAHI(하늘 크롭) → NMS → 구역인지 필터."""
+    """FAST: 원근 밴드별 경량 SAHI(하늘 크롭) → NMS → 구역인지 필터.
+
+    파인튜닝 모델(tube 클래스 보유) 사용 시 물 위 튜브를 사람 1명으로 합산.
+    """
     h, w = frame_bgr.shape[:2]
     merged: list = []
     for (yt, yb, up, sl) in bands:
@@ -1118,9 +1180,11 @@ def detect_people_sahi_fast(
             )
         )
     kept = nms_boxes(merged, iou_thresh=SAHI_NMS_IOU)
+    persons, tubes = _split_by_class(kept)
     confirmed, rejected = split_person_candidates(
-        kept, frame_hw=(h, w), frame_bgr=frame_bgr
+        persons, frame_hw=(h, w), frame_bgr=frame_bgr
     )
+    confirmed = confirmed + filter_tubes(tubes, (h, w), confirmed)
     return boxes_to_centers(confirmed), confirmed, rejected
 
 

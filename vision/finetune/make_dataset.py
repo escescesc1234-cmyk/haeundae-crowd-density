@@ -52,12 +52,14 @@ def main():
     print(f"[dataset] train={len(splits['train'])} val={len(splits['val'])}")
 
     # data.yaml (Colab에서 dataset 루트 기준 상대경로)
+    # class 1 tube: 물 위 튜브 = 사람 1명 지표 (YOLO-World 자동 라벨)
     data_yaml = (
         "path: .\n"
         "train: train/images\n"
         "val: val/images\n"
         "names:\n"
         "  0: person\n"
+        "  1: tube\n"
     )
     (root / "data.yaml").write_text(data_yaml, encoding="utf-8")
     print(f"[dataset] wrote {root / 'data.yaml'}")

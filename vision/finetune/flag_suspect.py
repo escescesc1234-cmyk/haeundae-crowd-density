@@ -40,13 +40,13 @@ WATER_Y_BOT = 0.78
 
 
 def read_counts(lbl_path: Path):
-    """라벨 파일에서 (총 사람수, 물구역 사람수) 반환."""
+    """라벨 파일에서 (총 사람수, 물구역 사람수) 반환. class 0(person)만 계수."""
     total = 0
     water = 0
     try:
         for line in lbl_path.read_text(encoding="utf-8").splitlines():
             parts = line.split()
-            if len(parts) < 5:
+            if len(parts) < 5 or parts[0] != "0":
                 continue
             cy = float(parts[2])
             total += 1
