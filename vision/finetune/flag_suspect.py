@@ -124,6 +124,38 @@ def do_flag(args):
               "python finetune/flag_suspect.py --apply")
 
 
+def do_sync(args):
+    """preview/ 에서 사용자가 직접 지운 프레임을 데이터셋·수집원본에서도 제거.
+
+    사용자가 dataset/preview 폴더를 보다가 나쁜 프레임을 Del로 지웠을 때:
+        python finetune/flag_suspect.py --sync
+    를 실행하면 해당 프레임의 images/labels/raw 파일까지 함께 삭제된다.
+    (raw 까지 지워야 Colab 재라벨링에도 그 프레임이 다시 들어가지 않음)
+    """
+    import time
+
+    img_dir = DATASET / "images"
+    lbl_dir = DATASET / "labels"
+    prev_dir = DATASET / "preview"
+    raw_dir = ROOT / "finetune" / "raw"
+
+    removed = 0
+    now = time.time()
+    for lbl in sorted(lbl_dir.glob("*.txt")):
+        stem = lbl.stem
+        if (prev_dir / f"{stem}.jpg").exists():
+            continue  # preview 있음 = 유지
+        # 감시기가 지금 막 처리 중인 최신 프레임 오삭제 방지(2.5분 유예)
+        if now - lbl.stat().st_mtime < 150:
+            continue
+        for p in (img_dir / f"{stem}.jpg", lbl, raw_dir / f"{stem}.jpg"):
+            if p.exists():
+                p.unlink()
+        removed += 1
+        print(f"[sync] removed {stem}")
+    print(f"[sync] preview에서 지운 {removed}장을 데이터셋·raw에서 제거 완료.")
+
+
 def do_apply(args):
     if not MANIFEST.exists():
         print(f"[apply] {MANIFEST} 없음. 먼저 flag 단계 실행.")
@@ -168,10 +200,14 @@ def main():
                     help="검수 없이 의심 프레임을 즉시 전부 삭제(주의: 진짜 혼잡 장면도 삭제될 수 있음)")
     ap.add_argument("--apply", action="store_true",
                     help="review/ 에서 지운 프레임을 데이터셋에서 제거")
+    ap.add_argument("--sync", action="store_true",
+                    help="dataset/preview 에서 직접 지운 프레임을 데이터셋·raw에서 제거")
     args = ap.parse_args()
 
     if args.apply:
         do_apply(args)
+    elif args.sync:
+        do_sync(args)
     else:
         do_flag(args)
 
