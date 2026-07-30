@@ -34,7 +34,7 @@ try {
         Add-One $_.FullName ("vision/" + $_.Name)
     }
     # 2) finetune scripts needed on Colab
-    foreach ($f in @("prelabel.py", "make_dataset.py")) {
+    foreach ($f in @("prelabel.py", "make_dataset.py", "flag_suspect.py")) {
         $p = Join-Path $vision "finetune\$f"
         if (Test-Path $p) { Add-One $p ("vision/finetune/" + $f) }
     }
