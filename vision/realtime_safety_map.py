@@ -67,10 +67,30 @@ PERSON_MIN_CONF = 0.35
 PERSON_HIGH_CONF = 0.35
 PERSON_MIN_BOX_AREA = 12.0
 PERSON_MIN_BOX_H = 6.0
-PERSON_MAX_ASPECT_W_OVER_H = 1.8  # 우산·파라솔·배(가로형) 강하게 차단
-PERSON_MIN_ASPECT_H_OVER_W = 0.70  # 세로형(사람) 선호
+PERSON_MAX_ASPECT_W_OVER_H = 1.8  # 우산·파라솔·배(가로형) 강하게 차단 (서있는 사람 기준)
+PERSON_MIN_ASPECT_H_OVER_W = 0.70  # 세로형(사람) 선호 (서있는 사람 기준)
 PERSON_MAX_AREA_FRAC = 0.05
 PERSON_MAX_WIDTH_FRAC = 0.18
+# ── 구역 인지 필터: 물/모래별 규칙 (파도 오탐↓, 수영자·튜브·파라솔 아래 회수↑) ──
+# 광안리 고정 캠 구도: 세로 0.45~0.78 물, 0.78 아래 모래(파라솔)
+WATER_Y_TOP = float(os.environ.get("VISION_WATER_TOP", "0.45"))
+WATER_Y_BOT = float(os.environ.get("VISION_WATER_BOT", "0.78"))
+# 물: 머리·상체만 내민 수영자 = 작은 정사각형~세로형 박스, 확신 완화
+SWIMMER_MIN_CONF = 0.20
+SWIMMER_MAX_H_FRAC = 0.04     # 수영자 박스 높이 상한 (프레임 높이 비율)
+SWIMMER_MAX_W_OVER_H = 1.4    # 머리·상체=정사각형~세로형만. 더 넓으면 튜브 규칙(conf≥0.40)
+# 물: 튜브·서프보드 위 사람 = 가로형 허용하되 확신 요구
+FLOAT_MIN_CONF = 0.40
+FLOAT_MAX_W_OVER_H = 2.6
+# 모래: 앉음·파라솔 아래 = 낮고 넓은 실루엣 허용, 확신 완화
+BEACH_SIT_MIN_CONF = 0.28
+BEACH_SIT_MIN_H_OVER_W = 0.45
+BEACH_SIT_MAX_W_OVER_H = 2.2
+# 파도 거품 판정: 박스 내 '밝고 무채색' 픽셀 비율이 높으면 파도로 기각
+FOAM_V_MIN = 0.72             # 밝기(HSV V) 하한
+FOAM_S_MAX = 0.25             # 채도(HSV S) 상한
+FOAM_REJECT_FRAC = 0.60       # 거품 비율 기각 기준
+FOAM_OVERRIDE_CONF = 0.55     # 이 확신 이상이면 거품 판정 무시
 # 정확도 맥스 설정
 YOLO_IMGSZ = 1280
 YOLO_CONF = PERSON_PROPOSAL_CONF
@@ -116,7 +136,9 @@ FAST_SCALES = (2.2, 3.0)
 FAST_MAX_DET = 500
 FAST_USE_TTA = False
 FAST_MIN_SCALE_VOTES = 2
-TEMPORAL_HISTORY = 2
+# FAST 주기가 CPU에서 ~60초라 2프레임 합집합(history=2, min_hits=1)은
+# 이동한 사람을 이중 카운트하고 파도 오탐을 2주기 유지시킴 → 비활성(1)
+TEMPORAL_HISTORY = 1
 TEMPORAL_MIN_HITS = 1
 TEMPORAL_IOU = 0.3
 
@@ -564,24 +586,46 @@ def scale_homography_for_frame(w: int, h: int):
     return build_homography(src, DST_METERS)[0]
 
 
-def is_confident_person_box(box, frame_hw=None) -> bool:
-    """사람으로 '확실히' 인정할지 판정.
+def _foam_fraction(frame_bgr: np.ndarray, box) -> float:
+    """박스 내 '밝고 무채색'(파도 거품) 픽셀 비율. 0.0~1.0."""
+    h, w = frame_bgr.shape[:2]
+    x1 = max(0, int(box[0]))
+    y1 = max(0, int(box[1]))
+    x2 = min(w, int(round(box[2])))
+    y2 = min(h, int(round(box[3])))
+    if x2 - x1 < 2 or y2 - y1 < 2:
+        return 0.0
+    patch = frame_bgr[y1:y2, x1:x2]
+    hsv = cv2.cvtColor(patch, cv2.COLOR_BGR2HSV)
+    s = hsv[..., 1].astype(np.float32) / 255.0
+    v = hsv[..., 2].astype(np.float32) / 255.0
+    return float(np.mean((v >= FOAM_V_MIN) & (s <= FOAM_S_MAX)))
+
+
+def _looks_like_foam(box, frame_bgr) -> bool:
+    """물 구역 후보가 파도 거품인지 색상으로 판정 (고확신은 통과)."""
+    score = float(box[4])
+    if score >= FOAM_OVERRIDE_CONF or frame_bgr is None:
+        return False
+    return _foam_fraction(frame_bgr, box) >= FOAM_REJECT_FRAC
+
+
+def is_confident_person_box(box, frame_hw=None, frame_bgr=None) -> bool:
+    """사람으로 '확실히' 인정할지 구역(물/모래) 인지로 판정.
 
     - 클래스 person 인 후보만 전달된다고 가정
-    - 확신도·크기·형태가 기준 미달이면 False (밀도 계산 제외)
+    - 공통: 크기·프레임 대비 비율 하한/상한
+    - 표준(서있는 사람): conf≥0.35 + 세로형. 물 구역이면 거품(파도) 색상 검사 추가
+    - 물 구역: 수영자(작은 박스, conf≥0.20) / 튜브 등 가로형(conf≥0.40) 허용
+    - 모래 구역: 앉음·파라솔 아래(낮고 넓음, conf≥0.28) 허용
     """
     x1, y1, x2, y2, score = box
-    if score < PERSON_MIN_CONF:
-        return False
     bw = max(0.0, float(x2) - float(x1))
     bh = max(0.0, float(y2) - float(y1))
     area = bw * bh
     if area < PERSON_MIN_BOX_AREA or bh < PERSON_MIN_BOX_H:
         return False
-    if bh > 1e-6 and (bw / bh) > PERSON_MAX_ASPECT_W_OVER_H:
-        return False
-    if bw > 1e-6 and (bh / bw) < PERSON_MIN_ASPECT_H_OVER_W:
-        return False
+    zone = "std"
     if frame_hw is not None:
         h, w = frame_hw
         # 프레임 밖·거의 점 수준 노이즈 제거
@@ -593,15 +637,58 @@ def is_confident_person_box(box, frame_hw=None) -> bool:
         # 박스 폭이 프레임의 과도한 비율이면 구조물/배로 간주
         if bw > PERSON_MAX_WIDTH_FRAC * w:
             return False
-    return True
+        # 박스 하단(발/수면 접점) 위치로 구역 판정
+        y_bot = float(y2) / float(max(1, h))
+        if WATER_Y_TOP <= y_bot < WATER_Y_BOT:
+            zone = "water"
+        elif y_bot >= WATER_Y_BOT:
+            zone = "beach"
+    w_over_h = (bw / bh) if bh > 1e-6 else 99.0
+    h_over_w = (bh / bw) if bw > 1e-6 else 99.0
+
+    # 표준 규칙: 서있는 사람 (기존 동작 유지)
+    if (
+        score >= PERSON_MIN_CONF
+        and w_over_h <= PERSON_MAX_ASPECT_W_OVER_H
+        and h_over_w >= PERSON_MIN_ASPECT_H_OVER_W
+    ):
+        # 물 구역에서는 파도 거품 오탐을 색상으로 차단
+        if zone == "water" and _looks_like_foam(box, frame_bgr):
+            return False
+        return True
+
+    if zone == "water":
+        # 수영자: 머리·상체만 → 작은 정사각형~세로형, 확신 완화
+        is_small = frame_hw is not None and bh <= SWIMMER_MAX_H_FRAC * frame_hw[0]
+        if (
+            is_small
+            and score >= SWIMMER_MIN_CONF
+            and w_over_h <= SWIMMER_MAX_W_OVER_H
+        ):
+            return not _looks_like_foam(box, frame_bgr)
+        # 튜브·서프보드 위: 가로형 허용하되 확신 요구
+        if score >= FLOAT_MIN_CONF and w_over_h <= FLOAT_MAX_W_OVER_H:
+            return not _looks_like_foam(box, frame_bgr)
+        return False
+
+    if zone == "beach":
+        # 앉음·파라솔 아래: 낮고 넓은 실루엣 허용
+        if (
+            score >= BEACH_SIT_MIN_CONF
+            and h_over_w >= BEACH_SIT_MIN_H_OVER_W
+            and w_over_h <= BEACH_SIT_MAX_W_OVER_H
+        ):
+            return True
+
+    return False
 
 
-def split_person_candidates(boxes: list, frame_hw=None):
+def split_person_candidates(boxes: list, frame_hw=None, frame_bgr=None):
     """확정 사람 / 기각(낮은 확신·비정상 박스)으로 분리."""
     confirmed = []
     rejected = []
     for b in boxes:
-        if is_confident_person_box(b, frame_hw=frame_hw):
+        if is_confident_person_box(b, frame_hw=frame_hw, frame_bgr=frame_bgr):
             confirmed.append(b)
         else:
             rejected.append(b)
@@ -726,7 +813,7 @@ def detect_people_fast(
             boxes.append((float(x1), float(y1), float(x2), float(y2), score))
     if not confirm:
         return boxes_to_centers(boxes), boxes
-    confirmed, _ = split_person_candidates(boxes, frame_hw=(h, w))
+    confirmed, _ = split_person_candidates(boxes, frame_hw=(h, w), frame_bgr=clean)
     return boxes_to_centers(confirmed), confirmed
 
 
@@ -769,7 +856,9 @@ def detect_people_fast_max(
         min_votes=FAST_MIN_SCALE_VOTES if len(scale_lists) >= 2 else 1,
         high_conf=PERSON_HIGH_CONF,
     )
-    confirmed, rejected = split_person_candidates(voted, frame_hw=(h, w))
+    confirmed, rejected = split_person_candidates(
+        voted, frame_hw=(h, w), frame_bgr=frame_bgr
+    )
     rejected = list(rejected) + list(dropped)
     return boxes_to_centers(confirmed), confirmed, rejected
 
@@ -941,7 +1030,9 @@ def detect_people_sahi_max(
             on_scale(i, n, scale, "after")
 
     kept = nms_boxes(merged_boxes, iou_thresh=nms_iou)
-    confirmed, rejected = split_person_candidates(kept, frame_hw=(h0, w0))
+    confirmed, rejected = split_person_candidates(
+        kept, frame_hw=(h0, w0), frame_bgr=frame_bgr
+    )
     return boxes_to_centers(confirmed), confirmed, rejected
 
 
@@ -963,7 +1054,9 @@ def detect_people_sahi_fast(
         slice_size=slice_size,
         overlap=overlap,
     )
-    confirmed, rejected = split_person_candidates(boxes, frame_hw=(h, w))
+    confirmed, rejected = split_person_candidates(
+        boxes, frame_hw=(h, w), frame_bgr=frame_bgr
+    )
     return boxes_to_centers(confirmed), confirmed, rejected
 
 
@@ -1463,18 +1556,10 @@ def precise_analyze_loop(
                 lastError=None,
                 progress=None,
             )
-            publish_detection_result(
-                raw,
-                centers,
-                boxes,
-                rejected,
-                roi_mask,
-                H,
-                cell_w,
-                cell_h,
-                infer_ms,
-                pipeline="precise",
-            )
+            # 메인 안전지도(STORE)는 FAST 기준을 유지한다.
+            # PRECISE는 CPU 사정상 입력을 960px로 축소해 유효 해상도가 FAST보다
+            # 낮으므로(1536 vs 3840), 메인을 덮어쓰면 오히려 인원이 줄어드는
+            # 퇴행이 생긴다 → 전용 스트림·메타에만 발행.
             _publish_precise_frame(
                 raw, centers, boxes, rejected, roi_mask, H, cell_w, cell_h, infer_ms
             )
@@ -1864,7 +1949,7 @@ def create_app() -> Flask:
   <p class="note">FAST=경량 SAHI(yolo26s·슬라이스384·1스케일) · PRECISE=SAHI(yolo26s·긴변축소). 위험 경보는 FAST.</p>
   <h2>모니터링 (fast 경보 + precise 보정)</h2>
   <img src="/stream/yolo" alt="accuracy-max monitor"/>
-  <p class="note">주황=확정 사람 · 회색=기각(저확신/가로형=우산·배 등). 확정=스케일합의 또는 conf≥0.35 + 세로형 필터.</p>
+  <p class="note">주황=확정 사람 · 회색=기각. 구역 인지 필터: 물=수영자(작은 박스 conf≥0.20)·튜브(가로형 conf≥0.40)+파도 거품 색상 기각 / 모래=앉음·파라솔 아래(conf≥0.28) / 공통=서있는 사람 conf≥0.35+세로형.</p>
 
   <h2>안전지도 (FAST 기준)</h2>
   <img src="/stream" alt="safety map"/>
