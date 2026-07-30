@@ -15,6 +15,10 @@
 
 --apply 는 review/ 에서 사라진(=사용자가 지운) 프레임을 데이터셋
 (images/labels/preview)에서 함께 제거한다. review/ 에 남긴 것은 그대로 유지.
+
+검수를 건너뛰고 싶으면:
+  python finetune/flag_suspect.py --purge   # 의심 프레임을 즉시 전부 삭제
+주의: --purge 는 '진짜로 붐비는' 정상 프레임까지 지울 수 있다(사람 많음=의심).
 """
 from __future__ import annotations
 
@@ -97,8 +101,26 @@ def do_flag(args):
     for stem, info in sorted(flagged.items(),
                              key=lambda kv: kv[1]["total"], reverse=True)[:15]:
         print(f"  - {stem}.jpg  {info['reasons']}")
-    print("[flag] 다음: review/ 폴더에서 '나쁜' 이미지를 삭제한 뒤, "
-          "python finetune/flag_suspect.py --apply")
+
+    if args.purge:
+        img_dir = DATASET / "images"
+        removed = 0
+        for stem in flagged:
+            for p in (img_dir / f"{stem}.jpg", lbl_dir / f"{stem}.txt",
+                      prev_dir / f"{stem}.jpg"):
+                if p.exists():
+                    p.unlink()
+            removed += 1
+        # 검수 사본·매니페스트도 정리
+        for f in REVIEW.glob("*.jpg"):
+            f.unlink()
+        if MANIFEST.exists():
+            MANIFEST.unlink()
+        print(f"[flag] --purge: 의심 {removed}장을 데이터셋에서 즉시 제거. "
+              "이후 make_dataset.py 실행.")
+    else:
+        print("[flag] 다음: review/ 폴더에서 '나쁜' 이미지를 삭제한 뒤, "
+              "python finetune/flag_suspect.py --apply")
 
 
 def do_apply(args):
@@ -141,6 +163,8 @@ def main():
                     help="'사람 과다'로 볼 절대 최소 인원")
     ap.add_argument("--water-min", type=int, default=25,
                     help="물 구역 박스 과다 임계(파도 오탐 의심)")
+    ap.add_argument("--purge", action="store_true",
+                    help="검수 없이 의심 프레임을 즉시 전부 삭제(주의: 진짜 혼잡 장면도 삭제될 수 있음)")
     ap.add_argument("--apply", action="store_true",
                     help="review/ 에서 지운 프레임을 데이터셋에서 제거")
     args = ap.parse_args()
