@@ -46,7 +46,7 @@ if (Test-Running 'autolabel_watch.py') {
     Write-Host "[watch] already running"
 } else {
     Start-Process -FilePath $py `
-        -ArgumentList "finetune/autolabel_watch.py", "--interval", "10", "--upscale", "2.0" `
+        -ArgumentList "finetune/autolabel_watch.py", "--interval", "10", "--upscale", "1.0", "--imgsz", "1920" `
         -WorkingDirectory $here `
         -RedirectStandardOutput "finetune/autolabel_watch.out.log" `
         -RedirectStandardError "finetune/autolabel_watch.err.log" `

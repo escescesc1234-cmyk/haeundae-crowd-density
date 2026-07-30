@@ -52,8 +52,10 @@ def main():
                     help="원근 밴드 SAHI로 정확 라벨(느림)")
     ap.add_argument("--teacher", action="store_true",
                     help="큰 모델(yolo26m)+밴드로 가장 정확(가장 느림)")
-    ap.add_argument("--upscale", type=float, default=2.0,
-                    help="라이트 모드 YOLO 입력 확대배율")
+    ap.add_argument("--upscale", type=float, default=1.0,
+                    help="라이트 모드 YOLO 입력 확대배율(원본 1.0 권장)")
+    ap.add_argument("--imgsz", type=int, default=1920,
+                    help="라이트 모드 추론 해상도(원본 1920 권장)")
     ap.add_argument("--model", default=None, help="가중치 경로 강제 지정")
     ap.add_argument("--once", action="store_true", help="백로그만 처리하고 종료")
     args = ap.parse_args()
@@ -75,8 +77,9 @@ def main():
     else:
         path = args.model or R.resolve_fast_sahi_model()
         print(f"[watch] light YOLO model={path}")
-        detect = P.make_light_detector(YOLO(path), upscale=args.upscale)
-        mode = f"LIGHT(up{args.upscale})"
+        detect = P.make_light_detector(YOLO(path), upscale=args.upscale,
+                                       imgsz=args.imgsz)
+        mode = f"LIGHT(up{args.upscale},imgsz{args.imgsz})"
 
     print(f"[watch] src={src}  interval={args.interval}s  mode={mode}")
     print(f"[watch] preview(박스) → {prev_dir}")

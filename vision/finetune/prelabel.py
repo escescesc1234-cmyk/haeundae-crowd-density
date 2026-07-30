@@ -88,11 +88,15 @@ def make_sahi_detector(model, bands):
     return _detect
 
 
-def make_light_detector(yolo_model, upscale: float = 2.0):
-    """YOLO 단일 추론 탐지기(빠름·라이브용). 슬라이싱 없음."""
+def make_light_detector(yolo_model, upscale: float = 1.0, imgsz: int = 1920):
+    """YOLO 단일 추론 탐지기(빠름·라이브용). 슬라이싱 없음.
+
+    원본 해상도(imgsz=1920)로 그대로 추론하는 게 upscale 후 축소보다
+    작은 사람을 훨씬 잘 잡는다(실측 7→20명).
+    """
     def _detect(img, roi_mask):
         _c, confirmed = R.detect_people_fast(
-            yolo_model, img, roi_mask, upscale=upscale
+            yolo_model, img, roi_mask, upscale=upscale, imgsz=imgsz
         )
         return confirmed
     return _detect
