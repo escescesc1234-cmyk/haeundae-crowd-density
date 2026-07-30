@@ -1954,9 +1954,6 @@ def create_app() -> Flask:
   <h2>안전지도 (FAST 기준)</h2>
   <img src="/stream" alt="safety map"/>
 
-  <h2>PRECISE 보정 (별도 스트림)</h2>
-  <img src="/stream/precise" alt="precise safety map"/>
-
   <div id="alert" class="ok"></div>
   <script>
     function skLevelClass(level) {
