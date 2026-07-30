@@ -76,7 +76,9 @@ YOLO_IMGSZ = 1280
 YOLO_CONF = PERSON_PROPOSAL_CONF
 DETECT_UPSCALE = 2.0
 DEFAULT_DETECTOR = "sahi"
-DEFAULT_MODEL = "yolov8l.pt"
+# 2026 신형 yolo26s: i7-8550U 실측 기준 yolov8m 대비 ~1.9배 빠르고 정확도 동등~↑
+# (없으면 ultralytics가 자동 다운로드). PRECISE 기본 모델.
+DEFAULT_MODEL = "yolo26s.pt"
 SAHI_SLICE = 256
 SAHI_OVERLAP = 0.5
 SAHI_UPSCALE = 3.0
@@ -90,12 +92,16 @@ SAHI_IMAGE_SIZE = 640
 PRECISE_MAX_EDGE = 960
 PRECISE_OVERLAP = 0.25
 PRECISE_COOLDOWN_SEC = 45.0  # 1회 보정 후 FAST에 양보
-# FAST 경로: 경량 SAHI (yolov8m, 1스케일·큰 슬라이스 → PRECISE보다 빠름)
+# FAST 경로: 경량 SAHI. yolo26s(신형·경량) 우선, 없으면 ultralytics 자동 다운로드.
+# 로컬 파인튜닝(models/*_beach_ft.pt)이 있으면 그것을 우선.
 FAST_SAHI_MODEL_CANDIDATES = (
+    "models/yolo26s_beach_ft.pt",
+    "yolo26s.pt",
     "models/yolov8m_beach_ft.pt",
     "yolov8m.pt",
-    "yolov8l.pt",
 )
+# ultralytics가 자동 다운로드하는 기본 이름 (로컬 파일이 없을 때 사용)
+FAST_SAHI_DOWNLOAD_NAME = "yolo26s.pt"
 FAST_SAHI_UPSCALE = 2.0
 FAST_SAHI_SLICE = 384
 FAST_SAHI_OVERLAP = 0.22
@@ -361,22 +367,23 @@ def resolve_device_label() -> str:
 
 
 def resolve_best_model(explicit: str | None = None) -> str:
-    """정밀 경로용: COCO yolov8l 우선 (약한 의사라벨 FT는 원거리 미탐을 키울 수 있음).
-    (구버전 n 파인튜닝은 붕괴 이력이 있어 자동 선택에서 제외)
+    """정밀 경로용: 신형 yolo26s 우선 (CPU에서 yolov8l 대비 대폭 빠름, 정확도 동등~↑).
+    로컬 파인튜닝이 있으면 그것을 우선. 로컬 파일이 없으면 자동 다운로드 이름 반환.
     """
     if explicit:
         return explicit
     candidates = [
+        ROOT / "models" / "yolo26s_beach_ft.pt",
+        ROOT / "yolo26s.pt",
         ROOT / "models" / "yolov8l_beach_ft.pt",
         ROOT / "yolov8l.pt",
         ROOT / "models" / "yolov8m_beach_ft.pt",
         ROOT / "yolov8m.pt",
-        ROOT / "yolov8n.pt",
     ]
     for p in candidates:
         if p.exists():
             return str(p)
-    return DEFAULT_MODEL
+    return DEFAULT_MODEL  # "yolo26s.pt" (ultralytics 자동 다운로드)
 
 
 class TemporalPersonStabilizer:
@@ -929,14 +936,13 @@ def _sahi_autodm_device() -> str:
 
 
 def resolve_fast_sahi_model(precise_model: str | None = None) -> str:
-    """FAST SAHI: m급 우선 (속도·정확도 균형)."""
+    """FAST SAHI: yolo26s 우선. 로컬 파일이 없으면 ultralytics 자동 다운로드 이름 반환."""
     for rel in FAST_SAHI_MODEL_CANDIDATES:
         p = ROOT / rel
         if p.exists():
             return str(p)
-    if precise_model and Path(precise_model).exists():
-        return precise_model
-    return str(ROOT / "yolov8m.pt")
+    # 로컬 파일이 없으면 다운로드 이름을 그대로 반환 (ultralytics가 받음)
+    return FAST_SAHI_DOWNLOAD_NAME
 
 
 def draw_yolo_boxes(
@@ -1715,7 +1721,7 @@ def create_app() -> Flask:
     <div class="src">
       <div class="label">FAST (경보)</div>
       <div class="value" id="fastVal">—</div>
-      <div class="sub" id="fastSub">yolov8m · 수 초</div>
+      <div class="sub" id="fastSub">yolo26s · 수 초</div>
     </div>
     <div class="src">
       <div class="label">PRECISE (보정)</div>
@@ -1729,7 +1735,7 @@ def create_app() -> Flask:
     </div>
   </div>
 
-  <p class="note">FAST=경량 SAHI(yolov8m·슬라이스384·1스케일) · PRECISE=SAHI 멀티스케일(yolov8l). 위험 경보는 FAST.</p>
+  <p class="note">FAST=경량 SAHI(yolo26s·슬라이스384·1스케일) · PRECISE=SAHI(yolo26s·긴변축소). 위험 경보는 FAST.</p>
   <h2>모니터링 (fast 경보 + precise 보정)</h2>
   <img src="/stream/yolo" alt="accuracy-max monitor"/>
   <p class="note">주황=확정 사람 · 회색=기각(저확신/가로형=우산·배 등). 확정=스케일합의 또는 conf≥0.35 + 세로형 필터.</p>
