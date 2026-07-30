@@ -339,6 +339,38 @@ def get_precise_meta() -> dict:
         return dict(PRECISE_META)
 
 
+# ── 군중 카운팅(밀도추정) 병행 ─────────────────────────────
+# lwcc(DM-Count/CSRNet 등)로 원거리 밀집 군중을 추정. YOLO 탐지가 놓치는
+# 먼 사람까지 density map으로 세어 보조 카운트를 제공한다. (CPU ~9s/프레임)
+CROWD_ENABLED = os.environ.get("VISION_CROWD", "1").strip() not in ("0", "false", "")
+CROWD_MODEL = os.environ.get("VISION_CROWD_MODEL", "DM-Count")  # DM-Count|CSRNet|Bay|SFANet
+CROWD_WEIGHTS = os.environ.get("VISION_CROWD_WEIGHTS", "SHA")   # SHA|SHB|QNRF
+CROWD_INTERVAL_SEC = float(os.environ.get("VISION_CROWD_INTERVAL", "30"))
+CROWD_ROI_TOP = 0.45   # 상단(하늘·건물) 제외: LIVE_ROI와 동일 비율
+CROWD_MAX_EDGE = int(os.environ.get("VISION_CROWD_MAX_EDGE", "1280"))  # 입력 긴 변 제한(연산 축소)
+CROWD_INPUT = None     # 지연 초기화(출력 폴더)
+_CROWD_META_LOCK = threading.Lock()
+CROWD_META: dict = {
+    "enabled": CROWD_ENABLED,
+    "model": f"{CROWD_MODEL}/{CROWD_WEIGHTS}",
+    "state": "idle",   # idle | loading | running | ok | error | disabled
+    "count": 0,
+    "inferMs": 0.0,
+    "updatedAt": None,
+    "lastError": None,
+}
+
+
+def set_crowd_meta(**kwargs):
+    with _CROWD_META_LOCK:
+        CROWD_META.update(kwargs)
+
+
+def get_crowd_meta() -> dict:
+    with _CROWD_META_LOCK:
+        return dict(CROWD_META)
+
+
 def resolve_device() -> str:
     """YOLO/SAHI용 디바이스. VISION_DEVICE 로 강제 가능 (cpu, cuda:0, 0 등)."""
     forced = os.environ.get("VISION_DEVICE", "").strip()
@@ -367,8 +399,13 @@ def resolve_device_label() -> str:
 
 
 def resolve_best_model(explicit: str | None = None) -> str:
-    """정밀 경로용: 신형 yolo26s 우선 (CPU에서 yolov8l 대비 대폭 빠름, 정확도 동등~↑).
-    로컬 파인튜닝이 있으면 그것을 우선. 로컬 파일이 없으면 자동 다운로드 이름 반환.
+    """정밀(PRECISE) 경로용: yolo26s.
+
+    GPU 없는 CPU에서는 FAST+PRECISE+군중카운팅이 INFER_LOCK으로 직렬화되므로
+    PRECISE를 yolo26m으로 올리면 FAST 경보가 2분 이상 지연된다(경합).
+    정확도 보강(원거리 밀집)은 병행 군중카운팅(DM-Count)이 담당하고,
+    PRECISE는 yolo26s로 유지해 FAST 응답성을 지킨다.
+    로컬 파인튜닝이 있으면 우선.
     """
     if explicit:
         return explicit
@@ -1455,6 +1492,89 @@ def precise_analyze_loop(
             time.sleep(5.0)
 
 
+def crowd_count_loop(interval_sec: float = CROWD_INTERVAL_SEC):
+    """군중 카운팅(밀도추정) 병행 루프.
+
+    lwcc(DM-Count/CSRNet)로 ROI(하단) 영역의 사람 수를 density map으로 추정한다.
+    YOLO 탐지가 놓치는 원거리 밀집 군중까지 세어 보조 카운트를 제공한다.
+    torch CPU 경합을 막기 위해 INFER_LOCK으로 직렬화(간헐 실행).
+    """
+    if not CROWD_ENABLED:
+        set_crowd_meta(state="disabled")
+        eprint("[crowd] 비활성화(VISION_CROWD=0)")
+        return
+
+    global CROWD_INPUT
+    CROWD_INPUT = ROOT / "output" / "crowd_input.jpg"
+    CROWD_INPUT.parent.mkdir(parents=True, exist_ok=True)
+
+    set_crowd_meta(state="loading")
+    eprint(f"[crowd] 모델 로딩 {CROWD_MODEL}/{CROWD_WEIGHTS} ...")
+    try:
+        from lwcc import LWCC
+
+        with INFER_LOCK:
+            model = LWCC.load_model(
+                model_name=CROWD_MODEL, model_weights=CROWD_WEIGHTS
+            )
+    except Exception as exc:
+        eprint(f"[crowd] 로딩 실패(비활성화): {exc}")
+        set_crowd_meta(state="error", lastError=str(exc))
+        return
+
+    set_crowd_meta(state="idle")
+    eprint("[crowd] ready")
+
+    while True:
+        try:
+            raw = STORE.get_raw_copy()
+            if raw is None:
+                time.sleep(1.0)
+                continue
+            h, w = raw.shape[:2]
+            top = int(max(0.0, min(0.9, CROWD_ROI_TOP)) * h)
+            roi_frame = raw[top:h, 0:w]
+            # 연산량·락 점유 축소: 긴 변을 CROWD_MAX_EDGE로 제한 (밀도추정은 스케일 견고)
+            rh, rw = roi_frame.shape[:2]
+            long_edge = max(rh, rw)
+            if CROWD_MAX_EDGE and long_edge > CROWD_MAX_EDGE:
+                s = CROWD_MAX_EDGE / float(long_edge)
+                roi_frame = cv2.resize(
+                    roi_frame, (int(rw * s), int(rh * s)), interpolation=cv2.INTER_AREA
+                )
+            cv2.imwrite(str(CROWD_INPUT), roi_frame)
+
+            set_crowd_meta(state="running")
+            PRECISE_WANT.set()  # FAST가 잠깐 양보하도록
+            wait0 = time.perf_counter()
+            with INFER_LOCK:
+                PRECISE_WANT.clear()
+                from lwcc import LWCC
+
+                t0 = time.perf_counter()
+                count = float(LWCC.get_count(str(CROWD_INPUT), model=model))
+                infer_ms = (time.perf_counter() - t0) * 1000.0
+            wait_ms = (time.perf_counter() - wait0) * 1000.0 - infer_ms
+
+            set_crowd_meta(
+                state="ok",
+                count=round(count, 1),
+                inferMs=round(infer_ms, 0),
+                updatedAt=datetime.now(timezone.utc).isoformat(),
+                lastError=None,
+            )
+            eprint(
+                f"[crowd] {CROWD_MODEL}/{CROWD_WEIGHTS} count={count:.1f} "
+                f"infer={infer_ms:.0f}ms lockwait={wait_ms:.0f}ms"
+            )
+            time.sleep(max(1.0, interval_sec))
+        except Exception as exc:
+            eprint(f"[crowd] FAILED: {exc}")
+            PRECISE_WANT.clear()
+            set_crowd_meta(state="error", lastError=str(exc))
+            time.sleep(10.0)
+
+
 def analyze_loop(
     model_path: str,
     analyze_every_sec: float = 0.5,
@@ -1514,6 +1634,7 @@ def create_app() -> Flask:
             "pipeline": ps.get("pipeline"),
             "status": ps.get("status"),
         }
+        snap["crowd"] = get_crowd_meta()
         return jsonify(snap)
 
     @app.get("/api/telecom")
@@ -1715,7 +1836,7 @@ def create_app() -> Flask:
 <body>
   <h1>실시간 해변 안전지도</h1>
   <div class="meta" id="meta">연결 중…</div>
-  <p class="note">YOLO는 원본만 분석합니다. 박스는 최신 영상에 바로 표시됩니다. SK 혼잡은 보조 참고용입니다.</p>
+  <p class="note">YOLO는 원본만 분석합니다. 박스는 최신 영상에 바로 표시됩니다. 군중 카운팅(밀도추정)·SK 혼잡은 보조 참고용입니다.</p>
 
   <div class="sources">
     <div class="src">
@@ -1727,6 +1848,11 @@ def create_app() -> Flask:
       <div class="label">PRECISE (보정)</div>
       <div class="value" id="preciseVal">—</div>
       <div class="sub" id="preciseSub">SAHI 백그라운드</div>
+    </div>
+    <div class="src">
+      <div class="label">군중 카운팅 (AI 추정)</div>
+      <div class="value" id="crowdVal">—</div>
+      <div class="sub" id="crowdSub">밀도추정 병행</div>
     </div>
     <div class="src">
       <div class="label">SK 혼잡도 (보조)</div>
@@ -1809,6 +1935,31 @@ def create_app() -> Flask:
         } else {
           document.getElementById('preciseVal').textContent = '(대기)';
           document.getElementById('preciseSub').textContent = '백그라운드 SAHI 대기';
+        }
+
+        const cw = r.crowd || {};
+        const cwState = cw.state || 'idle';
+        const crowdValEl = document.getElementById('crowdVal');
+        const crowdSubEl = document.getElementById('crowdSub');
+        if (cwState === 'disabled') {
+          crowdValEl.textContent = '꺼짐';
+          crowdSubEl.textContent = '병행 비활성화';
+        } else if (cw.updatedAt) {
+          crowdValEl.textContent = Math.round(cw.count ?? 0) + '명';
+          crowdSubEl.textContent =
+            (cw.model || '밀도추정') + ' · ' +
+            Number(cw.inferMs || 0).toFixed(0) + 'ms' +
+            (cwState === 'running' ? ' · 재추정 중' : '');
+        } else if (cwState === 'running' || cwState === 'loading') {
+          crowdValEl.textContent = '(추정 중)';
+          crowdSubEl.textContent =
+            cwState === 'loading' ? '모델 로딩' : (cw.model || '밀도추정');
+        } else if (cwState === 'error') {
+          crowdValEl.textContent = '오류';
+          crowdSubEl.textContent = cw.lastError || '군중 카운팅 실패';
+        } else {
+          crowdValEl.textContent = '(대기)';
+          crowdSubEl.textContent = cw.model || '밀도추정 병행';
         }
 
         const t = r.telecom || {};
@@ -1946,6 +2097,11 @@ def main():
 
     t_sk = threading.Thread(target=sk_refresh_loop, daemon=True)
     t_sk.start()
+
+    if CROWD_ENABLED:
+        t_crowd = threading.Thread(target=crowd_count_loop, daemon=True)
+        t_crowd.start()
+        eprint(f"crowd    = {CROWD_MODEL}/{CROWD_WEIGHTS} 병행 (밀도추정, {CROWD_INTERVAL_SEC:.0f}s)")
 
     if args.detector == "sahi":
         t_fast = threading.Thread(
