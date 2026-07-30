@@ -79,6 +79,51 @@ def to_yolo_line(box, w: int, h: int) -> str:
     return f"0 {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}"
 
 
+def make_sahi_detector(model, bands):
+    """SAHI 원근 밴드 탐지기(정확·느림)."""
+    def _detect(img, roi_mask):
+        _c, confirmed, _rej = R.detect_people_sahi_fast(model, img, roi_mask, bands=bands)
+        return confirmed
+    return _detect
+
+
+def make_light_detector(yolo_model, upscale: float = 2.0):
+    """YOLO 단일 추론 탐지기(빠름·라이브용). 슬라이싱 없음."""
+    def _detect(img, roi_mask):
+        _c, confirmed = R.detect_people_fast(
+            yolo_model, img, roi_mask, upscale=upscale
+        )
+        return confirmed
+    return _detect
+
+
+def process_frame(detect, fp: Path, img_dir: Path, lbl_dir: Path,
+                  prev_dir: Path | None) -> int:
+    """프레임 1장을 자동 라벨링: 원본 복사 + YOLO 라벨 + (선택)박스 미리보기.
+
+    detect: (img_bgr, roi_mask) -> [ (x1,y1,x2,y2,score), ... ]
+    반환값: 확정된 사람 수. 실패 시 -1.
+    """
+    img = cv2.imread(str(fp))
+    if img is None:
+        return -1
+    h, w = img.shape[:2]
+    roi_mask, _ = R.make_roi_mask(h, w, R.LIVE_ROI)
+    confirmed = detect(img, roi_mask)
+
+    shutil.copy2(fp, img_dir / fp.name)
+    lines = [to_yolo_line(b, w, h) for b in confirmed]
+    (lbl_dir / (fp.stem + ".txt")).write_text("\n".join(lines), encoding="utf-8")
+
+    if prev_dir is not None:
+        vis = img.copy()
+        for (x1, y1, x2, y2, _s) in confirmed:
+            cv2.rectangle(vis, (int(x1), int(y1)), (int(x2), int(y2)),
+                          (0, 200, 255), 2)
+        cv2.imwrite(str(prev_dir / fp.name), vis)
+    return len(confirmed)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Auto pre-label collected frames")
     ap.add_argument("--src", default=str(DEFAULT_SRC))
@@ -109,30 +154,15 @@ def main():
         return
 
     model = build_model(args.teacher, args.model)
+    detect = make_sahi_detector(model, bands)
     print(f"[prelabel] {len(frames)} frames → {out}  bands={bands}")
 
     for i, fp in enumerate(frames, 1):
-        img = cv2.imread(str(fp))
-        if img is None:
+        n = process_frame(detect, fp, img_dir, lbl_dir,
+                          prev_dir if args.preview else None)
+        if n < 0:
             continue
-        h, w = img.shape[:2]
-        roi_mask, _ = R.make_roi_mask(h, w, R.LIVE_ROI)
-        _c, confirmed, _rej = R.detect_people_sahi_fast(
-            model, img, roi_mask, bands=bands
-        )
-
-        shutil.copy2(fp, img_dir / fp.name)
-        lines = [to_yolo_line(b, w, h) for b in confirmed]
-        (lbl_dir / (fp.stem + ".txt")).write_text("\n".join(lines), encoding="utf-8")
-
-        if args.preview:
-            vis = img.copy()
-            for (x1, y1, x2, y2, s) in confirmed:
-                cv2.rectangle(vis, (int(x1), int(y1)), (int(x2), int(y2)),
-                              (0, 200, 255), 2)
-            cv2.imwrite(str(prev_dir / fp.name), vis)
-
-        print(f"[prelabel] {i}/{len(frames)} {fp.name} persons={len(confirmed)}")
+        print(f"[prelabel] {i}/{len(frames)} {fp.name} persons={n}")
 
     print(f"[prelabel] done. 교정 후 make_dataset.py 실행하세요.")
 

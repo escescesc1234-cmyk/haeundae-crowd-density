@@ -1,7 +1,8 @@
 # One-click starter for fine-tune data collection.
 # Usage:  cd vision ;  powershell -ExecutionPolicy Bypass -File .\start_collection.ps1
-# Starts the realtime server and the frame collector in the background if not
-# already running. Run this tomorrow morning to resume collection.
+# Starts (1) realtime server, (2) frame collector, (3) auto-box watcher in the
+# background if not already running. Run this tomorrow morning to resume.
+# The watcher draws boxes on every collected frame -> finetune/dataset/preview/.
 
 $py = "C:\Users\user\AppData\Local\Programs\Python\Python312\python.exe"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -40,6 +41,20 @@ if (Test-Running 'collect_finetune_frames.py') {
     Write-Host "[collect] started -> saving to finetune/raw/"
 }
 
+# 3) auto-box watcher (light YOLO, fast; boxes every collected frame)
+if (Test-Running 'autolabel_watch.py') {
+    Write-Host "[watch] already running"
+} else {
+    Start-Process -FilePath $py `
+        -ArgumentList "finetune/autolabel_watch.py", "--interval", "10", "--upscale", "2.0" `
+        -WorkingDirectory $here `
+        -RedirectStandardOutput "finetune/autolabel_watch.out.log" `
+        -RedirectStandardError "finetune/autolabel_watch.err.log" `
+        -WindowStyle Hidden
+    Write-Host "[watch] started -> boxes to finetune/dataset/preview/"
+}
+
 Start-Sleep -Seconds 3
 $n = (Get-ChildItem "finetune/raw" -File -ErrorAction SilentlyContinue | Measure-Object).Count
-Write-Host "[status] frames collected so far: $n"
+$b = (Get-ChildItem "finetune/dataset/preview" -File -ErrorAction SilentlyContinue | Measure-Object).Count
+Write-Host "[status] raw frames: $n   boxed previews: $b"
