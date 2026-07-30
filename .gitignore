@@ -18,7 +18,10 @@ vision/**/yolo*.pt
 vision/output/
 vision/runs/
 vision/datasets/
-vision/finetune/
+# 파인튜닝: 도구(.py/.ipynb)는 추적, 데이터·산출물만 제외
+vision/finetune/raw/
+vision/finetune/dataset/
+vision/finetune/*.zip
 vision/**/*_openvino_model/
 *.pt
 *.bin
