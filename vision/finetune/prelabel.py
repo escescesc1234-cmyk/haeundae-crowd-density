@@ -60,12 +60,13 @@ def build_model(teacher: bool, override: str | None) -> AutoDetectionModel:
         path = resolve_teacher_model()
     else:
         path = R.resolve_fast_sahi_model()
-    print(f"[prelabel] model={path} (teacher={teacher})")
+    device = R.resolve_device()  # Colab GPU면 cuda:0, 로컬이면 cpu
+    print(f"[prelabel] model={path} (teacher={teacher}) device={device}")
     return AutoDetectionModel.from_pretrained(
         model_type="yolov8",
         model_path=path,
         confidence_threshold=R.PERSON_PROPOSAL_CONF,
-        device="cpu",
+        device=device,
         image_size=R.FAST_SAHI_IMGSZ,
     )
 
