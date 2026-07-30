@@ -119,8 +119,14 @@ def process_frame(detect, fp: Path, img_dir: Path, lbl_dir: Path,
     if prev_dir is not None:
         vis = img.copy()
         for (x1, y1, x2, y2, _s) in confirmed:
+            # 마젠타 굵은 박스: 모래·바다 어디서든 눈에 띔 (검수용)
             cv2.rectangle(vis, (int(x1), int(y1)), (int(x2), int(y2)),
-                          (0, 200, 255), 2)
+                          (255, 0, 255), 2)
+        # 좌상단 인원수 배너: 썸네일에서도 과탐(파도 오탐) 프레임을 바로 식별
+        txt = f"persons={len(confirmed)}"
+        cv2.rectangle(vis, (0, 0), (330, 54), (0, 0, 0), -1)
+        cv2.putText(vis, txt, (12, 40), cv2.FONT_HERSHEY_SIMPLEX,
+                    1.2, (0, 255, 255), 3, cv2.LINE_AA)
         cv2.imwrite(str(prev_dir / fp.name), vis)
     return len(confirmed)
 
