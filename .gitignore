@@ -18,6 +18,7 @@ vision/**/yolo*.pt
 vision/output/
 vision/runs/
 vision/datasets/
+vision/finetune/
 vision/**/*_openvino_model/
 *.pt
 *.bin

@@ -112,6 +112,9 @@ SAHI_IMAGE_SIZE = 640
 PRECISE_MAX_EDGE = 960
 PRECISE_OVERLAP = 0.25
 PRECISE_COOLDOWN_SEC = 45.0  # 1회 보정 후 FAST에 양보
+# GPU 없는 CPU에서 물 구역 고해상 재스캔은 슬라이스 수백 개(수분) → FAST를 굶김.
+# FAST 원근밴드(물 2.8x)가 이미 물·모래를 커버하므로 기본 OFF, GPU 등에서만 ON.
+PRECISE_ENABLED = os.environ.get("VISION_PRECISE", "0").strip() not in ("0", "false", "")
 # FAST 경로: 경량 SAHI. yolo26s(신형·경량) 우선, 없으면 ultralytics 자동 다운로드.
 # 로컬 파인튜닝(models/*_beach_ft.pt)이 있으면 그것을 우선.
 FAST_SAHI_MODEL_CANDIDATES = (
@@ -128,6 +131,19 @@ FAST_SAHI_OVERLAP = 0.22
 FAST_SAHI_IMGSZ = 640
 FAST_EVERY_SEC = 0.2
 FAST_CONF = PERSON_PROPOSAL_CONF
+# ── 원근 대응 밴드(고정 카메라: 화면 y = 거리) ──
+# 하늘·다리(상단 WATER_Y_TOP 위)는 크롭해 추론에서 제외(공짜 속도).
+# 물(멀다)=고배율로 먼 수영자 회수↑, 모래(가깝다)=저배율로 낭비↓.
+# (y_top_frac, y_bot_frac, upscale, slice)
+FAST_BANDS = (
+    (WATER_Y_TOP, WATER_Y_BOT, 2.8, 384),  # 물: 먼 수영자·튜브 → 고배율
+    (WATER_Y_BOT, 1.0, 1.4, 384),          # 모래: 파라솔·앉음(큼) → 저배율
+)
+# PRECISE 물 구역 전담(원거리 수영자 정밀): FAST 물 밴드(2.8x)보다 높은 해상
+PRECISE_WATER_UPSCALE = float(os.environ.get("VISION_PRECISE_WATER_UPSCALE", "3.6"))
+PRECISE_WATER_SLICE = int(os.environ.get("VISION_PRECISE_WATER_SLICE", "256"))
+PRECISE_WATER_OVERLAP = 0.3
+PRECISE_WATER_MAX_EDGE = int(os.environ.get("VISION_PRECISE_WATER_MAXEDGE", "1920"))
 # --detector yolo 일 때만 사용 (호환)
 FAST_MODEL_CANDIDATES = FAST_SAHI_MODEL_CANDIDATES
 FAST_IMGSZ = 1280
@@ -370,6 +386,9 @@ CROWD_WEIGHTS = os.environ.get("VISION_CROWD_WEIGHTS", "SHA")   # SHA|SHB|QNRF
 CROWD_INTERVAL_SEC = float(os.environ.get("VISION_CROWD_INTERVAL", "30"))
 CROWD_ROI_TOP = 0.45   # 상단(하늘·건물) 제외: LIVE_ROI와 동일 비율
 CROWD_MAX_EDGE = int(os.environ.get("VISION_CROWD_MAX_EDGE", "1280"))  # 입력 긴 변 제한(연산 축소)
+# 보정계수: ShanghaiTech 학습 밀도모델을 광안리 구도에 맞춰 스케일.
+# 실측 몇 장을 수동으로 세어 (실제/원시) 평균으로 정하면 신뢰도↑. 기본 1.0(무보정).
+CROWD_CALIB = float(os.environ.get("VISION_CROWD_CALIB", "1.0"))
 CROWD_INPUT = None     # 지연 초기화(출력 폴더)
 _CROWD_META_LOCK = threading.Lock()
 CROWD_META: dict = {
@@ -377,6 +396,8 @@ CROWD_META: dict = {
     "model": f"{CROWD_MODEL}/{CROWD_WEIGHTS}",
     "state": "idle",   # idle | loading | running | ok | error | disabled
     "count": 0,
+    "countRaw": 0,
+    "calib": CROWD_CALIB,
     "inferMs": 0.0,
     "updatedAt": None,
     "lastError": None,
@@ -1036,6 +1057,47 @@ def detect_people_sahi_max(
     return boxes_to_centers(confirmed), confirmed, rejected
 
 
+def detect_people_sahi_band(
+    detection_model: AutoDetectionModel,
+    frame_bgr: np.ndarray,
+    roi_mask: np.ndarray,
+    y_top_frac: float,
+    y_bot_frac: float,
+    upscale: float,
+    slice_size: int,
+    overlap: float,
+    max_edge: int = 0,
+) -> list:
+    """세로 밴드([y_top_frac,y_bot_frac])만 잘라 SAHI 탐지 → 원본 좌표 박스 반환.
+
+    하늘·다리를 추론에서 제외(속도↑)하고 밴드별 배율(원근 대응)을 적용한다.
+    max_edge>0이면 밴드 크롭의 긴 변을 제한(정밀 경로 비용 상한).
+    """
+    h, w = frame_bgr.shape[:2]
+    y0 = max(0, int(round(y_top_frac * h)))
+    y1 = min(h, int(round(y_bot_frac * h)))
+    if y1 - y0 < 8:
+        return []
+    band = frame_bgr[y0:y1, 0:w]
+    band_mask = roi_mask[y0:y1, 0:w]
+    down = 1.0
+    if max_edge and max(band.shape[0], band.shape[1]) > max_edge:
+        band, down = fit_long_edge(band, max_edge)
+        band_mask = cv2.resize(
+            band_mask, (band.shape[1], band.shape[0]),
+            interpolation=cv2.INTER_NEAREST,
+        )
+    boxes = detect_people_sahi(
+        detection_model, band, band_mask,
+        upscale=upscale, slice_size=slice_size, overlap=overlap,
+    )
+    inv = 1.0 / down if down != 1.0 else 1.0
+    out = []
+    for x1, yy1, x2, yy2, s in boxes:
+        out.append((x1 * inv, yy1 * inv + y0, x2 * inv, yy2 * inv + y0, s))
+    return out
+
+
 def detect_people_sahi_fast(
     detection_model: AutoDetectionModel,
     frame_bgr: np.ndarray,
@@ -1043,19 +1105,21 @@ def detect_people_sahi_fast(
     upscale: float = FAST_SAHI_UPSCALE,
     slice_size: int = FAST_SAHI_SLICE,
     overlap: float = FAST_SAHI_OVERLAP,
+    bands=FAST_BANDS,
 ):
-    """FAST 전용 경량 SAHI (단일 스케일) → 형태/확신 필터."""
+    """FAST: 원근 밴드별 경량 SAHI(하늘 크롭) → NMS → 구역인지 필터."""
     h, w = frame_bgr.shape[:2]
-    boxes = detect_people_sahi(
-        detection_model,
-        frame_bgr,
-        roi_mask,
-        upscale=upscale,
-        slice_size=slice_size,
-        overlap=overlap,
-    )
+    merged: list = []
+    for (yt, yb, up, sl) in bands:
+        merged.extend(
+            detect_people_sahi_band(
+                detection_model, frame_bgr, roi_mask,
+                yt, yb, up, sl, overlap,
+            )
+        )
+    kept = nms_boxes(merged, iou_thresh=SAHI_NMS_IOU)
     confirmed, rejected = split_person_candidates(
-        boxes, frame_hw=(h, w), frame_bgr=frame_bgr
+        kept, frame_hw=(h, w), frame_bgr=frame_bgr
     )
     return boxes_to_centers(confirmed), confirmed, rejected
 
@@ -1520,18 +1584,27 @@ def precise_analyze_loop(
             roi_mask, _ = make_roi_mask(h, w, LIVE_ROI)
             H = scale_homography_for_frame(w, h)
 
-            set_precise_meta(state="running", progress="start", lastError=None)
-            eprint("[precise] start multi-scale SAHI (per-scale lock)...")
+            set_precise_meta(state="running", progress="water", lastError=None)
+            eprint("[precise] start water-zone specialist SAHI (high-res)...")
             t_inf = time.perf_counter()
             try:
-                _c, boxes, rejected = detect_people_sahi_max(
-                    sahi_model,
-                    raw,
-                    roi_mask,
-                    overlap=overlap,
-                    max_edge=PRECISE_MAX_EDGE,
-                    on_scale=_on_scale,
+                # 물 구역만 FAST(2.8x)보다 높은 배율·촘촘한 슬라이스로 재스캔
+                _on_scale(0, 1, PRECISE_WATER_UPSCALE, "before")
+                try:
+                    raw_boxes = detect_people_sahi_band(
+                        sahi_model, raw, roi_mask,
+                        WATER_Y_TOP, WATER_Y_BOT,
+                        PRECISE_WATER_UPSCALE, PRECISE_WATER_SLICE,
+                        PRECISE_WATER_OVERLAP,
+                        max_edge=PRECISE_WATER_MAX_EDGE,
+                    )
+                finally:
+                    _on_scale(0, 1, PRECISE_WATER_UPSCALE, "after")
+                confirmed, rejected = split_person_candidates(
+                    nms_boxes(raw_boxes, iou_thresh=SAHI_NMS_IOU),
+                    frame_hw=(h, w), frame_bgr=raw,
                 )
+                boxes = confirmed
             finally:
                 # 예외 시에도 락 누수 방지
                 if _scale_lock_held["on"]:
@@ -1637,19 +1710,23 @@ def crowd_count_loop(interval_sec: float = CROWD_INTERVAL_SEC):
                 from lwcc import LWCC
 
                 t0 = time.perf_counter()
-                count = float(LWCC.get_count(str(CROWD_INPUT), model=model))
+                raw_count = float(LWCC.get_count(str(CROWD_INPUT), model=model))
                 infer_ms = (time.perf_counter() - t0) * 1000.0
             wait_ms = (time.perf_counter() - wait0) * 1000.0 - infer_ms
+            count = raw_count * CROWD_CALIB  # 보정계수 적용
 
             set_crowd_meta(
                 state="ok",
                 count=round(count, 1),
+                countRaw=round(raw_count, 1),
+                calib=CROWD_CALIB,
                 inferMs=round(infer_ms, 0),
                 updatedAt=datetime.now(timezone.utc).isoformat(),
                 lastError=None,
             )
             eprint(
-                f"[crowd] {CROWD_MODEL}/{CROWD_WEIGHTS} count={count:.1f} "
+                f"[crowd] {CROWD_MODEL}/{CROWD_WEIGHTS} raw={raw_count:.1f} "
+                f"calib×{CROWD_CALIB:g}={count:.1f} "
                 f"infer={infer_ms:.0f}ms lockwait={wait_ms:.0f}ms"
             )
             time.sleep(max(1.0, interval_sec))
@@ -1930,9 +2007,9 @@ def create_app() -> Flask:
       <div class="sub" id="fastSub">yolo26s · 수 초</div>
     </div>
     <div class="src">
-      <div class="label">PRECISE (보정)</div>
+      <div class="label">PRECISE (물 정밀·선택)</div>
       <div class="value" id="preciseVal">—</div>
-      <div class="sub" id="preciseSub">SAHI 백그라운드</div>
+      <div class="sub" id="preciseSub">원거리 수영자 정밀</div>
     </div>
     <div class="src">
       <div class="label">군중 카운팅 (AI 추정)</div>
@@ -1946,8 +2023,8 @@ def create_app() -> Flask:
     </div>
   </div>
 
-  <p class="note">FAST=경량 SAHI(yolo26s·슬라이스384·1스케일) · PRECISE=SAHI(yolo26s·긴변축소). 위험 경보는 FAST.</p>
-  <h2>모니터링 (fast 경보 + precise 보정)</h2>
+  <p class="note">FAST=원근 밴드 SAHI(yolo26s): 하늘 크롭 후 물=2.8배(먼 수영자)·모래=1.4배(파라솔). PRECISE(물 정밀)는 GPU용 선택. 위험 경보는 FAST.</p>
+  <h2>모니터링 (fast 경보)</h2>
   <img src="/stream/yolo" alt="accuracy-max monitor"/>
   <p class="note">주황=확정 사람 · 회색=기각. 구역 인지 필터: 물=수영자(작은 박스 conf≥0.20)·튜브(가로형 conf≥0.40)+파도 거품 색상 기각 / 모래=앉음·파라솔 아래(conf≥0.28) / 공통=서있는 사람 conf≥0.35+세로형.</p>
 
@@ -1989,7 +2066,11 @@ def create_app() -> Flask:
         const pr = r.precise || {};
         const prState = pr.state || 'idle';
         const hasPrecise = !!pr.updatedAt;
-        if (hasPrecise) {
+        if (prState === 'disabled') {
+          document.getElementById('preciseVal').textContent = '꺼짐';
+          document.getElementById('preciseSub').textContent =
+            'FAST 원근밴드가 커버 · VISION_PRECISE=1로 켜기';
+        } else if (hasPrecise) {
           document.getElementById('preciseVal').textContent =
             (pr.personCount ?? 0) + '명';
           if (prState === 'running' || prState === 'loading') {
@@ -2028,8 +2109,10 @@ def create_app() -> Flask:
           crowdSubEl.textContent = '병행 비활성화';
         } else if (cw.updatedAt) {
           crowdValEl.textContent = Math.round(cw.count ?? 0) + '명';
+          const calibTxt = (cw.calib && cw.calib !== 1)
+            ? ' · ×' + Number(cw.calib).toFixed(2) : '';
           crowdSubEl.textContent =
-            (cw.model || '밀도추정') + ' · ' +
+            (cw.model || '밀도추정') + calibTxt + ' · ' +
             Number(cw.inferMs || 0).toFixed(0) + 'ms' +
             (cwState === 'running' ? ' · 재추정 중' : '');
         } else if (cwState === 'running' || cwState === 'loading') {
@@ -2192,13 +2275,21 @@ def main():
             kwargs={"fast_backend": "sahi"},
             daemon=True,
         )
-        t_precise = threading.Thread(
-            target=precise_analyze_loop,
-            args=(model_path, args.cell_w, args.cell_h, args.conf, PRECISE_OVERLAP),
-            daemon=True,
-        )
         t_fast.start()
-        t_precise.start()
+        if PRECISE_ENABLED:
+            t_precise = threading.Thread(
+                target=precise_analyze_loop,
+                args=(model_path, args.cell_w, args.cell_h, args.conf, PRECISE_OVERLAP),
+                daemon=True,
+            )
+            t_precise.start()
+            eprint("precise  = 물 구역 원거리 수영자 정밀 (VISION_PRECISE=1)")
+        else:
+            set_precise_meta(state="disabled", progress=None)
+            eprint(
+                "precise  = 비활성(기본). FAST 원근밴드가 물·모래 모두 커버. "
+                "GPU 등에서 VISION_PRECISE=1 로 물 정밀 활성화"
+            )
     else:
         t_ana = threading.Thread(
             target=fast_analyze_loop,
