@@ -35,9 +35,13 @@ from ultralytics import YOLO
 
 
 def pending_frames(src: Path, lbl_dir: Path) -> list[Path]:
-    """아직 라벨(.txt)이 없는 원본 프레임 목록."""
+    """아직 라벨(.txt)이 없는 원본 프레임 목록(최신 프레임 우선).
+
+    새로 수집된 프레임이 즉시 박스 처리되도록 최신순으로 반환하고,
+    오래된 백로그는 그 뒤에 이어서 채운다.
+    """
     out = []
-    for fp in sorted(src.glob("*.jpg")):
+    for fp in sorted(src.glob("*.jpg"), reverse=True):
         if not (lbl_dir / (fp.stem + ".txt")).exists():
             out.append(fp)
     return out
