@@ -22,6 +22,7 @@ vision/datasets/
 vision/finetune/raw/
 vision/finetune/dataset/
 vision/finetune/review/
+vision/finetune/_flagged.json
 vision/finetune/*.zip
 vision/**/*_openvino_model/
 *.pt

@@ -31,7 +31,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DATASET = ROOT / "finetune" / "dataset"
 REVIEW = ROOT / "finetune" / "review"
-MANIFEST = REVIEW / "_flagged.json"
+# 기록은 review 밖에 둔다: 사용자가 review 안을 전부 지워도 --apply가 동작하도록
+MANIFEST = ROOT / "finetune" / "_flagged.json"
 
 # 광안리 고정 캠 구도의 물 구역 세로 범위(참고: realtime_safety_map.WATER_Y_TOP/BOT)
 WATER_Y_TOP = 0.45
