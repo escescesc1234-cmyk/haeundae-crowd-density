@@ -140,6 +140,8 @@ def main():
     ap.add_argument("--src", default=str(DEFAULT_SRC))
     ap.add_argument("--out", default=str(DEFAULT_OUT))
     ap.add_argument("--limit", type=int, default=0, help="처리 최대 장수(0=전체)")
+    ap.add_argument("--step", type=int, default=1,
+                    help="N장마다 1장만 처리(1분 간격은 연속 프레임이 유사 → 2~3 권장)")
     ap.add_argument("--teacher", action="store_true",
                     help="큰 모델·고배율 자동 라벨(교정 최소화, 느림)")
     ap.add_argument("--model", default=None, help="가중치 경로 강제 지정")
@@ -158,6 +160,8 @@ def main():
         d.mkdir(parents=True, exist_ok=True)
 
     frames = sorted(src.glob("*.jpg"))
+    if args.step and args.step > 1:
+        frames = frames[:: args.step]
     if args.limit:
         frames = frames[: args.limit]
     if not frames:
