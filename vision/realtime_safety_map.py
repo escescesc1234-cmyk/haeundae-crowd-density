@@ -16,6 +16,8 @@ import sys
 import threading
 import time
 import zipfile
+from collections import deque
+from statistics import median
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -582,22 +584,30 @@ def request_pack_dataset() -> bool:
 # 먼 사람까지 density map으로 세어 보조 카운트를 제공한다. (CPU ~9s/프레임)
 CROWD_ENABLED = os.environ.get("VISION_CROWD", "1").strip() not in ("0", "false", "")
 CROWD_MODEL = os.environ.get("VISION_CROWD_MODEL", "DM-Count")  # DM-Count|CSRNet|Bay|SFANet
-CROWD_WEIGHTS = os.environ.get("VISION_CROWD_WEIGHTS", "SHA")   # SHA|SHB|QNRF
+# QNRF(UCF-QNRF: 야외 고밀도) = 해변 CCTV에 가장 근접한 도메인.
+# compare_crowd_models.py 실측: SHA=80.8/78.7(모래·파도 텍스처 과탐), QNRF=15.2/18.1(2개 아키텍처 일치).
+# → 기본을 SHA(과탐)에서 QNRF로 교체. (env로 언제든 변경 가능)
+CROWD_WEIGHTS = os.environ.get("VISION_CROWD_WEIGHTS", "QNRF")  # SHA|SHB|QNRF
 CROWD_INTERVAL_SEC = float(os.environ.get("VISION_CROWD_INTERVAL", "30"))
 CROWD_ROI_TOP = 0.45   # 상단(하늘·건물) 제외: LIVE_ROI와 동일 비율
 CROWD_MAX_EDGE = int(os.environ.get("VISION_CROWD_MAX_EDGE", "1280"))  # 입력 긴 변 제한(연산 축소)
-# 보정계수: ShanghaiTech 학습 밀도모델을 광안리 구도에 맞춰 스케일.
+# 보정계수: 밀도모델 원시값을 광안리 구도에 맞춰 스케일.
 # 실측 몇 장을 수동으로 세어 (실제/원시) 평균으로 정하면 신뢰도↑. 기본 1.0(무보정).
 CROWD_CALIB = float(os.environ.get("VISION_CROWD_CALIB", "1.0"))
+# 시간축 평활: 최근 N회 보정값의 중앙값을 headline으로 사용(프레임별 노이즈·순간 과탐↓).
+CROWD_SMOOTH_WINDOW = int(os.environ.get("VISION_CROWD_SMOOTH", "5"))
+_CROWD_HISTORY: deque = deque(maxlen=max(1, CROWD_SMOOTH_WINDOW))
 CROWD_INPUT = None     # 지연 초기화(출력 폴더)
 _CROWD_META_LOCK = threading.Lock()
 CROWD_META: dict = {
     "enabled": CROWD_ENABLED,
     "model": f"{CROWD_MODEL}/{CROWD_WEIGHTS}",
     "state": "idle",   # idle | loading | running | ok | error | disabled
-    "count": 0,
-    "countRaw": 0,
+    "count": 0,        # 시간축 평활(중앙값) headline
+    "countInstant": 0, # 이번 프레임 보정값
+    "countRaw": 0,     # 모델 원시 출력
     "calib": CROWD_CALIB,
+    "window": 0,       # 평활에 사용된 표본 수
     "inferMs": 0.0,
     "updatedAt": None,
     "lastError": None,
@@ -2215,20 +2225,26 @@ def crowd_count_loop(interval_sec: float = CROWD_INTERVAL_SEC):
                 raw_count = float(LWCC.get_count(str(CROWD_INPUT), model=model))
                 infer_ms = (time.perf_counter() - t0) * 1000.0
             wait_ms = (time.perf_counter() - wait0) * 1000.0 - infer_ms
-            count = raw_count * CROWD_CALIB  # 보정계수 적용
+            instant = raw_count * CROWD_CALIB  # 보정계수 적용
+            # 시간축 평활: 최근 표본의 중앙값(순간 과탐/노이즈에 강건)
+            _CROWD_HISTORY.append(instant)
+            smoothed = float(median(_CROWD_HISTORY))
 
             set_crowd_meta(
                 state="ok",
-                count=round(count, 1),
+                count=round(smoothed, 1),
+                countInstant=round(instant, 1),
                 countRaw=round(raw_count, 1),
                 calib=CROWD_CALIB,
+                window=len(_CROWD_HISTORY),
                 inferMs=round(infer_ms, 0),
                 updatedAt=datetime.now(timezone.utc).isoformat(),
                 lastError=None,
             )
             eprint(
                 f"[crowd] {CROWD_MODEL}/{CROWD_WEIGHTS} raw={raw_count:.1f} "
-                f"calib×{CROWD_CALIB:g}={count:.1f} "
+                f"calib×{CROWD_CALIB:g}={instant:.1f} "
+                f"med{len(_CROWD_HISTORY)}={smoothed:.1f} "
                 f"infer={infer_ms:.0f}ms lockwait={wait_ms:.0f}ms"
             )
             time.sleep(max(1.0, interval_sec))
@@ -2341,7 +2357,21 @@ def create_app() -> Flask:
             "pipeline": ps.get("pipeline"),
             "status": ps.get("status"),
         }
-        snap["crowd"] = get_crowd_meta()
+        cw = get_crowd_meta()
+        snap["crowd"] = cw
+        # ── 탐지⊕밀도 융합 추정 ───────────────────────────────
+        # 탐지(YOLO+SAHI)는 근거리·확정에 정확하나 원거리 밀집을 놓침.
+        # 밀도추정(QNRF)은 원거리 밀집을 잡지만 순간 텍스처에 흔들림.
+        # 두 추정의 최댓값을 "최소 이 정도"의 융합 추정으로 노출한다.
+        det_total = int(snap.get("personCount", 0)) + int(snap.get("tubeCount", 0))
+        dens = float(cw.get("count", 0) or 0) if cw.get("enabled") else 0.0
+        fused = max(det_total, round(dens))
+        snap["estimatedTotal"] = {
+            "count": int(fused),
+            "detection": det_total,
+            "density": round(dens, 1),
+            "source": "density" if dens > det_total else "detection",
+        }
         snap["reload"] = get_reload_meta()
         snap["pack"] = get_pack_meta()
         return jsonify(snap)
@@ -2635,6 +2665,11 @@ def create_app() -> Flask:
       <div class="sub" id="crowdSub">밀도추정 병행</div>
     </div>
     <div class="src">
+      <div class="label">융합 추정 (탐지⊕밀도)</div>
+      <div class="value" id="fusedVal">—</div>
+      <div class="sub" id="fusedSub">최소 이 정도</div>
+    </div>
+    <div class="src">
       <div class="label">SK 혼잡도 (보조)</div>
       <div class="value" id="skVal">—</div>
       <div class="sub" id="skSub">지오비전 퍼즐</div>
@@ -2740,8 +2775,11 @@ def create_app() -> Flask:
           crowdValEl.textContent = Math.round(cw.count ?? 0) + '명';
           const calibTxt = (cw.calib && cw.calib !== 1)
             ? ' · ×' + Number(cw.calib).toFixed(2) : '';
+          const medTxt = (cw.window > 1)
+            ? ' · 중앙값' + cw.window + '회(순간 ' + Math.round(cw.countInstant ?? 0) + ')'
+            : '';
           crowdSubEl.textContent =
-            (cw.model || '밀도추정') + calibTxt + ' · ' +
+            (cw.model || '밀도추정') + calibTxt + medTxt + ' · ' +
             Number(cw.inferMs || 0).toFixed(0) + 'ms' +
             (cwState === 'running' ? ' · 재추정 중' : '');
         } else if (cwState === 'running' || cwState === 'loading') {
@@ -2754,6 +2792,20 @@ def create_app() -> Flask:
         } else {
           crowdValEl.textContent = '(대기)';
           crowdSubEl.textContent = cw.model || '밀도추정 병행';
+        }
+
+        const est = r.estimatedTotal || {};
+        const fusedValEl = document.getElementById('fusedVal');
+        const fusedSubEl = document.getElementById('fusedSub');
+        if (est.count != null) {
+          fusedValEl.textContent = Math.round(est.count) + '명';
+          fusedSubEl.textContent =
+            '탐지 ' + (est.detection ?? 0) + ' · 밀도 ' +
+            Number(est.density ?? 0).toFixed(0) +
+            ' · 채택=' + (est.source === 'density' ? '밀도' : '탐지');
+        } else {
+          fusedValEl.textContent = '—';
+          fusedSubEl.textContent = '최소 이 정도';
         }
 
         const t = r.telecom || {};
