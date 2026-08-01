@@ -104,22 +104,20 @@ def make_live_roi_mask(h: int, w: int):
 CELL_W = 40
 CELL_H = 15
 # 사람/비사람: 저확신은 스케일 합의, 고확신은 단독 통과 + 형태필터
-# 제안 conf: 0.08=허공 폭주, 너무 높이면 회수↓ → 0.10
-PERSON_PROPOSAL_CONF = float(os.environ.get("VISION_PROPOSAL_CONF", "0.10"))
+# (회수 기준값 = 튜브 도입·원근밴드 안정화 시점 0a52786. 오탐 대응으로 올렸던
+#  proposal/beach/swimmer 문턱·empty_water 강제가 회수를 크게 떨어뜨림 → 원복)
+PERSON_PROPOSAL_CONF = float(os.environ.get("VISION_PROPOSAL_CONF", "0.08"))
 # 파인튜닝(yolo26s_beach_ft) 모델은 확신도가 낮게 나오는 경향이 있음.
 # 전역으로 너무 낮추면(0.12~0.16) 먼 바다 안전 부표가 튜브/사람으로 통과함.
 PERSON_MIN_CONF = float(os.environ.get("VISION_PERSON_MIN_CONF", "0.20"))
 PERSON_HIGH_CONF = 0.35
-# 원거리 수영자/해변 사람은 1080p에서 박스 면적이 10~40px인 경우가 많음.
-# AREA_FRAC 하한(예: 2e-5≈41px)을 두면 거의 전부가 size로 기각됨 → 하한 없음.
-# 허공 오탐은 empty_water·tube색·부표/파라솔 필터로 막는다.
 PERSON_MIN_BOX_AREA = 12.0
 PERSON_MIN_BOX_H = 6.0
 PERSON_MAX_ASPECT_W_OVER_H = 1.8  # 우산·파라솔·배(가로형) 강하게 차단 (서있는 사람 기준)
 PERSON_MIN_ASPECT_H_OVER_W = 0.70  # 세로형(사람) 선호 (서있는 사람 기준)
 PERSON_MAX_AREA_FRAC = 0.05
 PERSON_MAX_WIDTH_FRAC = 0.18
-# 기각(회색 X) 박스: 기본 비표시. 디버그 시 VISION_DRAW_REJECTED=1
+# 기각(회색 X) 박스: 기본 비표시(UI 노이즈). 디버그 시 VISION_DRAW_REJECTED=1
 DRAW_REJECTED = os.environ.get("VISION_DRAW_REJECTED", "0").strip() in (
     "1", "true", "yes",
 )
@@ -139,20 +137,19 @@ NEAR_BUOY_MAX_AREA_FRAC = 0.00015
 NEAR_BUOY_MAX_H_FRAC = 0.020
 NEAR_TUBE_MIN_AREA_FRAC = 0.00010  # 사실상 점만 '옆에 사람' 요구
 NEAR_BUOY_COLOR_AREA = 0.00035     # 부표색이 뚜렷할 때만 조금 더 큰 것도 기각
-# 물: 머리·상체만 내민 수영자 = 작은 정사각형~세로형 박스
-# 허공 오탐은 empty_water/foam으로 막고, 문턱은 회수 가능하게
-SWIMMER_MIN_CONF = 0.20
+# 물: 머리·상체만 내민 수영자 = 작은 정사각형~세로형 박스, 확신 완화
+SWIMMER_MIN_CONF = 0.16
 SWIMMER_MAX_H_FRAC = 0.055    # 입수대 상반신 조금 더 허용
 SWIMMER_MAX_W_OVER_H = 1.5
 # 물: 튜브·서프보드 위 사람 = 가로형. 파도는 foam(색)으로 막는다.
 FLOAT_MIN_CONF = 0.28
 FLOAT_MAX_W_OVER_H = 2.6
-# 모래: 서 있는 사람 / 파라솔(빨간·가로형 캐노피) 기각
-BEACH_STAND_MIN_CONF = float(os.environ.get("VISION_BEACH_STAND_MIN_CONF", "0.18"))
+# 모래: 서 있는 사람 회수↑ / 파라솔(빨간·가로형 캐노피) 기각
+BEACH_STAND_MIN_CONF = float(os.environ.get("VISION_BEACH_STAND_MIN_CONF", "0.12"))
 BEACH_STAND_MAX_W_OVER_H = 1.65   # 서있는 사람: 파라솔(≥1.2 가로)보다 좁은 편
 BEACH_STAND_MIN_H_OVER_W = 0.60
 # 앉음·파라솔 아래 사람: 낮고 넓은 실루엣. 다만 캐노피만큼 넓으면 안 됨.
-BEACH_SIT_MIN_CONF = 0.18
+BEACH_SIT_MIN_CONF = 0.16
 BEACH_SIT_MIN_H_OVER_W = 0.50
 BEACH_SIT_MAX_W_OVER_H = 1.55   # 2.2는 파라솔 캐노피가 통과하기 쉬움
 # 파라솔 색(광안리 빨간·주황 우산이 대부분). OpenCV H: 빨강 0~10/170~180, 주황~갈대 10~25
@@ -176,15 +173,15 @@ BUOY_COLOR_FRAC = 0.22        # 박스 내 부표색 픽셀 비율 ≥ 이면 �
 # ── 튜브(class 1): 파인튜닝 모델 전용. 튜브는 물에서만 쓰므로 '사람 1명' 지표 ──
 # 기본 COCO 모델에는 tube 클래스가 없어 자동으로 비활성(이름 기반 판별).
 TUBE_CLASS_NAME = "tube"
-# 색 없는 tube 오탐은 _tube_color_fraction으로 막고, conf는 회수 가능하게
-TUBE_MIN_CONF = float(os.environ.get("VISION_TUBE_MIN_CONF", "0.18"))
+TUBE_MIN_CONF = float(os.environ.get("VISION_TUBE_MIN_CONF", "0.14"))
 TUBE_MIN_W_OVER_H = 0.50
 TUBE_MAX_W_OVER_H = 3.8
 TUBE_DUP_IOU = 0.30
-TUBE_NEAR_PERSON_DIST = 0.12
+TUBE_NEAR_PERSON_DIST = 0.10
 TUBE_FOAM_REJECT_FRAC = 0.65  # 튜브 foam은 더 느슨 (흰 파도만)
-# 튜브 색(주황·노랑·파랑·분홍) 픽셀 비율 — 색 없으면 열린 바다 오탐으로 기각
-TUBE_COLOR_FRAC = 0.12
+# 저확신( conf < 이 값 ) 튜브만 색/허공 가드 적용 — 고확신 실튜브 회수 유지
+TUBE_SOFT_GUARD_CONF = 0.25
+TUBE_COLOR_FRAC = 0.08
 # 물가 튜브는 박스 중심이 WATER_Y_BOT(0.78)보다 아래(모래쪽)로 살짝 내려옴 → 상한을 넓힘
 TUBE_Y_BOT = float(os.environ.get("VISION_TUBE_Y_BOT", "0.90"))
 # 정확도 맥스 설정
@@ -235,7 +232,7 @@ FAST_CONF = PERSON_PROPOSAL_CONF
 FAST_BANDS = (
     (WATER_Y_TOP, FAR_WATER_Y, 2.2, 384, 0.22),  # 먼 바다(부표 띠)
     (FAR_WATER_Y, WATER_Y_BOT, 2.8, 384, 0.22),  # 가까운 입수대
-    (WATER_Y_BOT, 1.0, 2.0, 384, 0.22),          # 모래
+    (WATER_Y_BOT, 1.0, 2.4, 384, 0.22),          # 모래: 2.0→2.4 원거리·앉은 사람 회수↑
 )
 # PRECISE 물 구역 전담(원거리 수영자 정밀): FAST 물 밴드(2.8x)보다 높은 해상
 PRECISE_WATER_UPSCALE = float(os.environ.get("VISION_PRECISE_WATER_UPSCALE", "3.6"))
@@ -954,7 +951,7 @@ def _tube_color_fraction(frame_bgr: np.ndarray, box) -> float:
 
 
 def _looks_like_empty_water(box, frame_hw, frame_bgr) -> bool:
-    """열린 바다 허공: 저분산·물색 위주·튜브색 거의 없음."""
+    """열린 바다 허공(저분산·무색). 저확신 튜브 가드 전용 — person 경로에서는 쓰지 않음."""
     if frame_bgr is None or frame_hw is None:
         return False
     h, w = frame_hw
@@ -970,20 +967,8 @@ def _looks_like_empty_water(box, frame_hw, frame_bgr) -> bool:
     patch = frame_bgr[y1:y2, x1:x2]
     std = float(patch.std())
     tube_c = _tube_color_fraction(frame_bgr, box)
-    # 저분산 + 약한 색 = 잔물결/허공 (좌측 가장자리 오탐 등)
-    if std < 32.0 and tube_c < 0.16:
-        return True
-    # 사람/튜브가 있으면 보통 분산↑. 너무 높으면 허공 아님
-    if std > 38.0:
-        return False
-    hsv = cv2.cvtColor(patch, cv2.COLOR_BGR2HSV)
-    hh = hsv[..., 0]
-    ss = hsv[..., 1].astype(np.float32) / 255.0
-    vv = hsv[..., 2].astype(np.float32) / 255.0
-    water = float(np.mean(
-        (hh >= 70) & (hh <= 115) & (ss >= 0.08) & (vv >= 0.15) & (vv <= 0.90)
-    ))
-    return water >= 0.40 and tube_c < 0.10
+    # 매우 밋밋하고 튜브색도 거의 없을 때만 (회수 해치지 않게 엄격)
+    return std < 28.0 and tube_c < TUBE_COLOR_FRAC
 
 
 def _looks_like_safety_buoy(box, frame_hw, frame_bgr=None) -> bool:
@@ -1103,15 +1088,12 @@ def is_confident_person_box(box, frame_hw=None, frame_bgr=None) -> bool:
             return False
         if _looks_like_safety_buoy(box, frame_hw, frame_bgr):
             return False
-        # 구역: 중심(cy). 하늘은 금지, 열린 바다는 empty_water로 허공 기각
-        cy = _box_cy_frac(box, h)
-        if cy < WATER_Y_TOP:
-            return False
-        if WATER_Y_TOP <= cy < WATER_Y_BOT:
+        # 구역은 박스 하단(발/몸통이 닿는 쪽). 중심(cy)으로 하면 물가 선 사람이
+        # water 규칙으로 넘어가 회수가 크게 떨어짐.
+        y_bot = float(y2) / float(max(1, h))
+        if WATER_Y_TOP <= y_bot < WATER_Y_BOT:
             zone = "water"
-            if _looks_like_empty_water(box, frame_hw, frame_bgr):
-                return False
-        else:
+        elif y_bot >= WATER_Y_BOT:
             zone = "beach"
             if _looks_like_parasol(box, frame_hw, frame_bgr):
                 return False
@@ -1119,7 +1101,7 @@ def is_confident_person_box(box, frame_hw=None, frame_bgr=None) -> bool:
     h_over_w = (bh / bw) if bw > 1e-6 else 99.0
 
     if zone == "beach":
-        # 해변 서있는 사람: 세로형, 파라솔 폭 제한
+        # 해변 서있는 사람: 전역보다 낮은 확신, 세로형, 파라솔 폭 제한
         if (
             score >= BEACH_STAND_MIN_CONF
             and w_over_h <= BEACH_STAND_MAX_W_OVER_H
@@ -1135,7 +1117,7 @@ def is_confident_person_box(box, frame_hw=None, frame_bgr=None) -> bool:
             return True
         return False
 
-    # 먼 바다: 전역보다 높은 확신 요구 (부표·허공 오탐 억제)
+    # 먼 바다: 전역보다 높은 확신 요구 (부표 오탐 억제)
     need = FAR_PERSON_MIN_CONF if _in_far_water(box, frame_hw) else PERSON_MIN_CONF
 
     # 표준 규칙: 서있는 사람 (물·기타)
@@ -1595,10 +1577,11 @@ def _split_by_class(boxes: list) -> tuple[list, list]:
 
 
 def filter_tubes(tubes: list, frame_hw, confirmed_persons: list, frame_bgr=None) -> list:
-    """튜브 박스 확정: 물 구역·튜브색·확신도 + 부표/파도 억제.
+    """튜브 박스 확정: person과 같은 구역·파도 골격 + 튜브 전용 보정.
 
-    열린 바다 오탐 방지: (1) 주황/파랑 등 튜브색 필수 (2) 문턱 상향
-    (3) 먼 바다는 옆 사람 또는 강한 색+고확신.
+    핵심: `_looks_like_safety_buoy` 의 입수대 '점 크기' 규칙은 실제 원거리
+    튜브(높이≤~22px)까지 전부 부표로 오판한다. → 튜브색이 있으면 크기만으로
+    기각하지 않는다. 저확신 허공만 soft guard.
     """
     if not tubes:
         return []
@@ -1611,17 +1594,18 @@ def filter_tubes(tubes: list, frame_hw, confirmed_persons: list, frame_bgr=None)
         cy = (y1 + y2) / 2.0 / max(1.0, float(h))
         if not (WATER_Y_TOP <= cy <= TUBE_Y_BOT):
             continue
-        if _looks_like_safety_buoy(b, frame_hw, frame_bgr):
-            continue
-        if _looks_like_empty_water(b, frame_hw, frame_bgr):
+        tube_c = (
+            _tube_color_fraction(frame_bgr, b) if frame_bgr is not None else 0.0
+        )
+        # 부표 필터: 무색/약한 색만 적용. 주황·분홍 튜브는 통과
+        if _looks_like_safety_buoy(b, frame_hw, frame_bgr) and tube_c < 0.12:
             continue
         # 튜브 foam: 사람용보다 덜 민감 (색 있는 튜브 보호)
         if frame_bgr is not None and float(b[4]) < FOAM_OVERRIDE_CONF:
             if _foam_fraction(frame_bgr, b) >= TUBE_FOAM_REJECT_FRAC:
                 continue
-        # 색 없는 '튜브' = 거의 항상 잔물결/부표 오탐
-        tube_c = _tube_color_fraction(frame_bgr, b) if frame_bgr is not None else 0.0
-        if tube_c < TUBE_COLOR_FRAC:
+        # 저확신 + 허공(저분산·무색)만 기각
+        if s < TUBE_SOFT_GUARD_CONF and _looks_like_empty_water(b, frame_hw, frame_bgr):
             continue
         bw = max(1.0, x2 - x1)
         bh = max(1.0, y2 - y1)
@@ -1629,18 +1613,19 @@ def filter_tubes(tubes: list, frame_hw, confirmed_persons: list, frame_bgr=None)
         near_person = _near_any_box(
             b, confirmed_persons, frame_hw, TUBE_NEAR_PERSON_DIST
         )
-        # 아주 작은 점: 옆 사람 없으면 부표
-        if area_frac < NEAR_TUBE_MIN_AREA_FRAC and not near_person:
+        # 아주 작은 점: 옆 사람도 없고 색도 약하면 부표
+        if (
+            cy >= FAR_WATER_Y
+            and area_frac < NEAR_TUBE_MIN_AREA_FRAC
+            and not near_person
+            and tube_c < 0.12
+        ):
             continue
         if cy < FAR_WATER_Y:
             if s < FAR_TUBE_MIN_CONF:
                 continue
-            # 먼 바다: 옆 사람 또는 (뚜렷한 색 + 중확신)
-            if not near_person and not (tube_c >= 0.25 and s >= 0.30):
-                continue
-        elif cy < WATER_Y_BOT:
-            # 입수대: 색 통과 후, 아주 낮은 확신만 옆 사람 요구
-            if s < 0.28 and not near_person:
+            # 먼 바다: 옆 사람 또는 뚜렷한 튜브색
+            if not near_person and tube_c < 0.20:
                 continue
         ratio = bw / bh
         if not (TUBE_MIN_W_OVER_H <= ratio <= TUBE_MAX_W_OVER_H):
