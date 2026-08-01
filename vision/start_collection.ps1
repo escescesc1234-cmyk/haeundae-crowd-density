@@ -28,12 +28,12 @@ if (Test-Running 'realtime_safety_map.py') {
     Start-Sleep -Seconds 12
 }
 
-# 2) frame collector (every 45s)
+# 2) frame collector (every 60s)
 if (Test-Running 'collect_finetune_frames.py') {
     Write-Host "[collect] already running"
 } else {
     Start-Process -FilePath $py `
-        -ArgumentList "collect_finetune_frames.py", "--every", "45" `
+        -ArgumentList "collect_finetune_frames.py", "--every", "60" `
         -WorkingDirectory $here `
         -RedirectStandardOutput "collect_frames.out.log" `
         -RedirectStandardError "collect_frames.err.log" `

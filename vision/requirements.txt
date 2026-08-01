@@ -6,8 +6,6 @@ sahi>=0.11.0
 yt-dlp>=2024.1.0
 flask>=3.0.0
 tzdata>=2024.1
-# 군중 카운팅(밀도추정) 병행 보조: CSRNet/DM-Count 등 (LWCC)
-lwcc>=0.0.7
 # 군중 카운팅(밀도추정) 병행: DM-Count/CSRNet 등. torch/torchvision는 ultralytics가 설치.
 # 설치: pip install --no-deps lwcc gdown  (torch 다운그레이드 방지)
 lwcc>=0.0.7

@@ -15,6 +15,7 @@ import subprocess
 import sys
 import threading
 import time
+import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -29,7 +30,7 @@ except Exception:
 
 import cv2
 import numpy as np
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, jsonify, request, send_file
 from ultralytics import YOLO
 from sahi import AutoDetectionModel
 from sahi.predict import get_sliced_prediction
@@ -58,12 +59,54 @@ DEFAULT_YOUTUBE = "https://www.youtube.com/watch?v=jmVmZlsQIL8"
 REF_W, REF_H = 1024.0, 204.0
 # 라이브 광안리 뷰: 하늘·다리 제외
 LIVE_ROI = [(0.0, 0.45), (1.0, 0.45), (1.0, 1.0), (0.0, 1.0)]
+
+
+def _parse_exclude_zones(s: str) -> list:
+    """"x1,y1,x2,y2;x1,y1,x2,y2" → [(x1,y1,x2,y2), ...] (정규화 좌표)."""
+    zones = []
+    for part in s.split(";"):
+        vals = [v.strip() for v in part.split(",")]
+        if len(vals) == 4:
+            try:
+                zones.append(tuple(float(v) for v in vals))
+            except ValueError:
+                pass
+    return zones
+
+
+# 고정 카메라 오탐 제외 구역(정규화 x1,y1,x2,y2). 항상 같은 자리의 구조물을
+# 사람으로 오탐하는 경우 여기에 추가. 기본: 우측 하단 노란 에어바운스 조형물.
+# VISION_EXCLUDE_ZONES="x1,y1,x2,y2;..." 환경변수로 교체 가능.
+EXCLUDE_ZONES = _parse_exclude_zones(
+    os.environ.get("VISION_EXCLUDE_ZONES", "0.855,0.865,1.0,1.0")
+)
+
+
+def make_live_roi_mask(h: int, w: int):
+    """LIVE_ROI 마스크에서 고정 오탐 구역(EXCLUDE_ZONES)을 뺀 탐지 마스크.
+
+    탐지 함수들이 박스 중심점을 이 마스크로 거르므로, 제외 구역의
+    구조물(예: 에어바운스)은 라이브·라벨링 모두에서 무시된다.
+    """
+    mask, pts = make_roi_mask(h, w, LIVE_ROI)
+    for (zx1, zy1, zx2, zy2) in EXCLUDE_ZONES:
+        cv2.rectangle(
+            mask,
+            (int(zx1 * w), int(zy1 * h)),
+            (int(zx2 * w), int(zy2 * h)),
+            0,
+            -1,
+        )
+    return mask, pts
 # 더 작은 직사각 격자 (너비 40, 높이 15)
 CELL_W = 40
 CELL_H = 15
 # 사람/비사람: 저확신은 스케일 합의, 고확신은 단독 통과 + 형태필터
 PERSON_PROPOSAL_CONF = 0.08
-PERSON_MIN_CONF = 0.35
+# 파인튜닝(yolo26s_beach_ft) 모델은 확신도가 낮게 나오는 경향이 있음.
+# 전역으로 너무 낮추면(0.12~0.16) 먼 바다 안전 부표가 튜브/사람으로 통과함.
+# → 전역은 중간값, 먼 바다(부표 띠)는 별도 엄격 규칙으로 분리.
+PERSON_MIN_CONF = float(os.environ.get("VISION_PERSON_MIN_CONF", "0.20"))
 PERSON_HIGH_CONF = 0.35
 PERSON_MIN_BOX_AREA = 12.0
 PERSON_MIN_BOX_H = 6.0
@@ -75,29 +118,64 @@ PERSON_MAX_WIDTH_FRAC = 0.18
 # 광안리 고정 캠 구도: 세로 0.45~0.78 물, 0.78 아래 모래(파라솔)
 WATER_Y_TOP = float(os.environ.get("VISION_WATER_TOP", "0.45"))
 WATER_Y_BOT = float(os.environ.get("VISION_WATER_BOT", "0.78"))
+# 먼 바다(부표 줄 구간). 라이브 프레임 기준 y≈0.45~0.55 에 안전 부표가 가로로 늘어서 있음.
+# 이 띠에서는 작은·노란·저확신 후보를 사람/튜브로 인정하지 않는다.
+FAR_WATER_Y = float(os.environ.get("VISION_FAR_WATER_Y", "0.55"))
+FAR_PERSON_MIN_CONF = float(os.environ.get("VISION_FAR_PERSON_MIN_CONF", "0.40"))
+FAR_TUBE_MIN_CONF = float(os.environ.get("VISION_FAR_TUBE_MIN_CONF", "0.40"))
+FAR_MAX_AREA_FRAC = 0.0007   # 이보다 작으면 부표/노이즈로 간주 (프레임 대비)
+FAR_MAX_BOX_H_FRAC = 0.025   # 박스 높이 상한 (프레임 높이 비율)
+# 가까운 입수대 부표: 점 크기만 차단 (중간 크기=튜브 후보로 유지)
+NEAR_BUOY_MAX_AREA_FRAC = 0.00015
+NEAR_BUOY_MAX_H_FRAC = 0.020
+NEAR_TUBE_MIN_AREA_FRAC = 0.00010  # 사실상 점만 '옆에 사람' 요구
+NEAR_BUOY_COLOR_AREA = 0.00035     # 부표색이 뚜렷할 때만 조금 더 큰 것도 기각
 # 물: 머리·상체만 내민 수영자 = 작은 정사각형~세로형 박스, 확신 완화
-SWIMMER_MIN_CONF = 0.20
-SWIMMER_MAX_H_FRAC = 0.04     # 수영자 박스 높이 상한 (프레임 높이 비율)
-SWIMMER_MAX_W_OVER_H = 1.4    # 머리·상체=정사각형~세로형만. 더 넓으면 튜브 규칙(conf≥0.40)
-# 물: 튜브·서프보드 위 사람 = 가로형 허용하되 확신 요구
-FLOAT_MIN_CONF = 0.40
+# (입수대 회수: 0.20은 파인튜닝 모델에 다소 높음 → 0.16)
+SWIMMER_MIN_CONF = 0.16
+SWIMMER_MAX_H_FRAC = 0.055    # 입수대 상반신 조금 더 허용
+SWIMMER_MAX_W_OVER_H = 1.5
+# 물: 튜브·서프보드 위 사람 = 가로형. 0.40은 파도↓이지만 입수대 사람도↓
+# → 중간값. 파도는 foam(색)으로 막는다.
+FLOAT_MIN_CONF = 0.28
 FLOAT_MAX_W_OVER_H = 2.6
-# 모래: 앉음·파라솔 아래 = 낮고 넓은 실루엣 허용, 확신 완화
-BEACH_SIT_MIN_CONF = 0.28
-BEACH_SIT_MIN_H_OVER_W = 0.45
-BEACH_SIT_MAX_W_OVER_H = 2.2
-# 파도 거품 판정: 박스 내 '밝고 무채색' 픽셀 비율이 높으면 파도로 기각
-FOAM_V_MIN = 0.72             # 밝기(HSV V) 하한
-FOAM_S_MAX = 0.25             # 채도(HSV S) 상한
-FOAM_REJECT_FRAC = 0.60       # 거품 비율 기각 기준
-FOAM_OVERRIDE_CONF = 0.55     # 이 확신 이상이면 거품 판정 무시
+# 모래: 서 있는 사람 회수↑ / 파라솔(빨간·가로형 캐노피) 기각
+BEACH_STAND_MIN_CONF = float(os.environ.get("VISION_BEACH_STAND_MIN_CONF", "0.12"))
+BEACH_STAND_MAX_W_OVER_H = 1.65   # 서있는 사람: 파라솔(≥1.2 가로)보다 좁은 편
+BEACH_STAND_MIN_H_OVER_W = 0.60
+# 앉음·파라솔 아래 사람: 낮고 넓은 실루엣. 다만 캐노피만큼 넓으면 안 됨.
+BEACH_SIT_MIN_CONF = 0.16
+BEACH_SIT_MIN_H_OVER_W = 0.50
+BEACH_SIT_MAX_W_OVER_H = 1.55   # 2.2는 파라솔 캐노피가 통과하기 쉬움
+# 파라솔 색(광안리 빨간·주황 우산이 대부분). OpenCV H: 빨강 0~10/170~180, 주황~갈대 10~25
+PARASOL_COLOR_FRAC = 0.28
+PARASOL_S_MIN = 0.30
+PARASOL_V_MIN = 0.30
+PARASOL_MIN_W_OVER_H = 1.20   # 캐노피=가로로 넓은 박스
+PARASOL_MAX_H_FRAC = 0.12     # 프레임 대비 너무 큰 가로 구조물
+# 파도 거품: '밝고 저채도' 비율. 에지 단독 기각은 수영자 실루엣까지 죽여서 사용 금지.
+FOAM_V_MIN = 0.70
+FOAM_S_MAX = 0.28
+FOAM_REJECT_FRAC = 0.52       # 0.42(과도)와 0.60(약함)의 중간
+FOAM_OVERRIDE_CONF = 0.45     # 입수대 사람은 이 정도면 foam 검사 통과
+FOAM_SOFT_FRAC = 0.28         # 중간 거품 + 강한 잔물결일 때만 보조 기각
+FOAM_EDGE_WITH_SOFT = 0.28    # soft foam과 함께일 때만 에지 사용
+# 부표(노랑~주황·연한 노랑). CCTV에선 채도가 낮게 보이므로 S 하한을 낮춤.
+BUOY_H_MIN, BUOY_H_MAX = 8, 50
+BUOY_S_MIN = 0.18
+BUOY_V_MIN = 0.35
+BUOY_COLOR_FRAC = 0.22        # 박스 내 부표색 픽셀 비율 ≥ 이면 부표 의심
 # ── 튜브(class 1): 파인튜닝 모델 전용. 튜브는 물에서만 쓰므로 '사람 1명' 지표 ──
 # 기본 COCO 모델에는 tube 클래스가 없어 자동으로 비활성(이름 기반 판별).
 TUBE_CLASS_NAME = "tube"
-TUBE_MIN_CONF = 0.30
-TUBE_MIN_W_OVER_H = 0.7       # 튜브=둥근~가로형
-TUBE_MAX_W_OVER_H = 3.2
-TUBE_DUP_IOU = 0.25           # 확정 사람과 이만큼 겹치면 중복 집계 방지
+TUBE_MIN_CONF = float(os.environ.get("VISION_TUBE_MIN_CONF", "0.14"))
+TUBE_MIN_W_OVER_H = 0.50
+TUBE_MAX_W_OVER_H = 3.8
+TUBE_DUP_IOU = 0.30
+TUBE_NEAR_PERSON_DIST = 0.10
+TUBE_FOAM_REJECT_FRAC = 0.65  # 튜브 foam은 더 느슨 (흰 파도만)
+# 물가 튜브는 박스 중심이 WATER_Y_BOT(0.78)보다 아래(모래쪽)로 살짝 내려옴 → 상한을 넓힘
+TUBE_Y_BOT = float(os.environ.get("VISION_TUBE_Y_BOT", "0.90"))
 # 정확도 맥스 설정
 YOLO_IMGSZ = 1280
 YOLO_CONF = PERSON_PROPOSAL_CONF
@@ -143,8 +221,9 @@ FAST_CONF = PERSON_PROPOSAL_CONF
 # 물(멀다)=고배율로 먼 수영자 회수↑, 모래(가깝다)=저배율로 낭비↓.
 # (y_top_frac, y_bot_frac, upscale, slice)
 FAST_BANDS = (
-    (WATER_Y_TOP, WATER_Y_BOT, 2.8, 384),  # 물: 먼 수영자·튜브 → 고배율
-    (WATER_Y_BOT, 1.0, 1.4, 384),          # 모래: 파라솔·앉음(큼) → 저배율
+    (WATER_Y_TOP, FAR_WATER_Y, 2.2, 384),  # 먼 바다(부표 띠): 저배율 — 부표 과탐↓
+    (FAR_WATER_Y, WATER_Y_BOT, 2.8, 384),  # 가까운 입수대: 고배율 — 수영자·튜브↑
+    (WATER_Y_BOT, 1.0, 2.0, 384),          # 모래: 서있는 사람 회수↑ (1.4→2.0)
 )
 # PRECISE 물 구역 전담(원거리 수영자 정밀): FAST 물 밴드(2.8x)보다 높은 해상
 PRECISE_WATER_UPSCALE = float(os.environ.get("VISION_PRECISE_WATER_UPSCALE", "3.6"))
@@ -340,10 +419,14 @@ class LatestFrameStore:
                 if dens is not None and np.any(~np.isnan(dens))
                 else 0.0
             )
+            tube_n = sum(
+                1 for b in self.yolo_boxes if len(b) >= 6 and int(b[5]) == 1
+            )
             return {
                 "status": self.status,
                 "updatedAt": self.updated_at,
                 "personCount": self.person_count,
+                "tubeCount": tube_n,
                 "maxGridDensityPerM2": max_d,
                 "alerts": self.alerts,
                 "yoloInferMs": self.yolo_infer_ms,
@@ -382,6 +465,116 @@ def set_precise_meta(**kwargs):
 def get_precise_meta() -> dict:
     with _PRECISE_META_LOCK:
         return dict(PRECISE_META)
+
+
+# ── 모델 핫 리로드(무중단 재적용) ──────────────────────────
+# Windows에서 os.execv 자기 재시작은 리스닝 소켓을 깔끔히 넘기지 못해 포트가
+# 죽은 PID에 묶인다. 그래서 프로세스는 그대로 두고, FAST 루프가 다음 사이클에
+# 새 가중치(models/yolo26s_beach_ft.pt)로 모델만 교체한다(다운타임 없음).
+MODEL_RELOAD_REQUEST = threading.Event()
+_RELOAD_META_LOCK = threading.Lock()
+RELOAD_META: dict = {
+    "state": "idle",   # idle | reloading | done | error
+    "path": None,
+    "requestedAt": None,
+    "doneAt": None,
+    "error": None,
+}
+
+
+def set_reload_meta(**kwargs):
+    with _RELOAD_META_LOCK:
+        RELOAD_META.update(kwargs)
+
+
+def get_reload_meta() -> dict:
+    with _RELOAD_META_LOCK:
+        return dict(RELOAD_META)
+
+
+# ── 학습용 ZIP 패키징(수집 프레임 → Colab용) ───────────────
+# UI '학습용 ZIP 생성' 버튼이 pack_for_colab.ps1 과 동일한 내용의 zip을 만든다.
+# (PowerShell 의존 없이 파이썬으로 직접 패킹 → 실행정책/인코딩 문제 없음)
+DATASET_ZIP = Path(__file__).resolve().parent / "finetune" / "gwangalli_colab.zip"
+_PACK_META_LOCK = threading.Lock()
+PACK_META: dict = {
+    "state": "idle",   # idle | packing | done | error
+    "path": None,
+    "sizeMB": None,
+    "frames": 0,
+    "startedAt": None,
+    "doneAt": None,
+    "error": None,
+}
+
+
+def set_pack_meta(**kwargs):
+    with _PACK_META_LOCK:
+        PACK_META.update(kwargs)
+
+
+def get_pack_meta() -> dict:
+    with _PACK_META_LOCK:
+        return dict(PACK_META)
+
+
+def _do_pack_dataset():
+    """vision 코드 + finetune 스크립트/노트북 + 수집 원본(raw/*.jpg)을 zip으로."""
+    root = Path(__file__).resolve().parent
+    raw_dir = root / "finetune" / "raw"
+    try:
+        set_pack_meta(
+            state="packing",
+            error=None,
+            startedAt=datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S"),
+            doneAt=None,
+            path=None,
+            sizeMB=None,
+        )
+        frames = sorted(raw_dir.glob("*.jpg"))
+        set_pack_meta(frames=len(frames))
+        if not frames:
+            set_pack_meta(state="error", error="수집된 프레임(raw/*.jpg)이 없습니다.")
+            return
+        tmp = DATASET_ZIP.with_name(DATASET_ZIP.name + ".tmp")
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as z:
+            # 1) vision 루트 .py (탐지 코드 + 로컬 모듈 의존)
+            for py in sorted(root.glob("*.py")):
+                z.write(py, f"vision/{py.name}")
+            # 2) Colab에 필요한 finetune 스크립트
+            for name in ("prelabel.py", "make_dataset.py", "flag_suspect.py"):
+                p = root / "finetune" / name
+                if p.exists():
+                    z.write(p, f"vision/finetune/{name}")
+            # 3) 최신 학습 노트북
+            nb = root / "finetune" / "label_and_train_colab.ipynb"
+            if nb.exists():
+                z.write(nb, "vision/finetune/label_and_train_colab.ipynb")
+            # 4) 수집 원본 = 학습 데이터
+            for jp in frames:
+                z.write(jp, f"vision/finetune/raw/{jp.name}")
+        tmp.replace(DATASET_ZIP)
+        size = round(DATASET_ZIP.stat().st_size / (1024 * 1024), 1)
+        set_pack_meta(
+            state="done",
+            path=str(DATASET_ZIP),
+            sizeMB=size,
+            doneAt=datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S"),
+        )
+        eprint(f"[pack] ZIP 생성 완료 → {DATASET_ZIP} ({size} MB, {len(frames)} frames)")
+    except Exception as exc:  # noqa: BLE001
+        set_pack_meta(state="error", error=str(exc))
+        eprint(f"[pack] 실패: {exc}")
+
+
+def request_pack_dataset() -> bool:
+    """ZIP 생성을 백그라운드로 시작. 이미 진행 중이면 False."""
+    with _PACK_META_LOCK:
+        if PACK_META.get("state") == "packing":
+            return False
+        PACK_META["state"] = "packing"
+    threading.Thread(target=_do_pack_dataset, daemon=True).start()
+    return True
 
 
 # ── 군중 카운팅(밀도추정) 병행 ─────────────────────────────
@@ -615,10 +808,12 @@ def scale_homography_for_frame(w: int, h: int):
 
 
 def _foam_fraction(frame_bgr: np.ndarray, box) -> float:
-    """박스 내 '밝고 무채색'(파도 거품) 픽셀 비율. 0.0~1.0."""
+    """박스 내 '밝고 저채도'(파도 거품) 픽셀 비율. 0.0~1.0."""
+    if frame_bgr is None:
+        return 0.0
     h, w = frame_bgr.shape[:2]
-    x1 = max(0, int(box[0]))
-    y1 = max(0, int(box[1]))
+    x1 = max(0, int(round(box[0])))
+    y1 = max(0, int(round(box[1])))
     x2 = min(w, int(round(box[2])))
     y2 = min(h, int(round(box[3])))
     if x2 - x1 < 2 or y2 - y1 < 2:
@@ -630,22 +825,176 @@ def _foam_fraction(frame_bgr: np.ndarray, box) -> float:
     return float(np.mean((v >= FOAM_V_MIN) & (s <= FOAM_S_MAX)))
 
 
+def _wave_edge_fraction(frame_bgr: np.ndarray, box) -> float:
+    """박스 내 밝기 에지 비율 — 파도 잔물결·거품 가장자리."""
+    if frame_bgr is None:
+        return 0.0
+    h, w = frame_bgr.shape[:2]
+    x1 = max(0, int(round(box[0])))
+    y1 = max(0, int(round(box[1])))
+    x2 = min(w, int(round(box[2])))
+    y2 = min(h, int(round(box[3])))
+    if x2 - x1 < 4 or y2 - y1 < 4:
+        return 0.0
+    gray = cv2.cvtColor(frame_bgr[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray, 60, 140)
+    return float(np.mean(edges > 0))
+
+
 def _looks_like_foam(box, frame_bgr) -> bool:
-    """물 구역 후보가 파도 거품인지 색상으로 판정 (고확신은 통과)."""
+    """물 구역 후보가 파도 거품인지 색상 중심으로 판정.
+
+    주의: Canny 에지 단독 기각은 수영자 실루엣(물 대비 윤곽)까지 죽여서 쓰지 않는다.
+    에지는 '어느 정도 거품색이 있을 때'만 보조 신호로 쓴다.
+    """
     score = float(box[4])
     if score >= FOAM_OVERRIDE_CONF or frame_bgr is None:
         return False
-    return _foam_fraction(frame_bgr, box) >= FOAM_REJECT_FRAC
+    foam = _foam_fraction(frame_bgr, box)
+    if foam >= FOAM_REJECT_FRAC:
+        return True
+    # 중간 거품 + 강한 잔물결만 파도로 (사람 윤곽만 있는 박스는 통과)
+    if foam >= FOAM_SOFT_FRAC and _wave_edge_fraction(frame_bgr, box) >= FOAM_EDGE_WITH_SOFT:
+        return True
+    return False
+
+
+def _box_cy_frac(box, h: float) -> float:
+    return (float(box[1]) + float(box[3])) * 0.5 / max(1.0, float(h))
+
+
+def _in_far_water(box, frame_hw) -> bool:
+    """먼 바다(부표 띠): WATER_Y_TOP ≤ cy < FAR_WATER_Y."""
+    if frame_hw is None:
+        return False
+    h = frame_hw[0]
+    cy = _box_cy_frac(box, h)
+    return WATER_Y_TOP <= cy < FAR_WATER_Y
+
+
+def _buoy_color_fraction(frame_bgr: np.ndarray, box) -> float:
+    """박스 내 노랑~주황(부표색) 픽셀 비율."""
+    if frame_bgr is None:
+        return 0.0
+    h, w = frame_bgr.shape[:2]
+    x1 = max(0, int(round(box[0])))
+    y1 = max(0, int(round(box[1])))
+    x2 = min(w, int(round(box[2])))
+    y2 = min(h, int(round(box[3])))
+    if x2 - x1 < 2 or y2 - y1 < 2:
+        return 0.0
+    patch = frame_bgr[y1:y2, x1:x2]
+    hsv = cv2.cvtColor(patch, cv2.COLOR_BGR2HSV)
+    hh = hsv[..., 0]
+    ss = hsv[..., 1].astype(np.float32) / 255.0
+    vv = hsv[..., 2].astype(np.float32) / 255.0
+    mask = (
+        (hh >= BUOY_H_MIN)
+        & (hh <= BUOY_H_MAX)
+        & (ss >= BUOY_S_MIN)
+        & (vv >= BUOY_V_MIN)
+    )
+    return float(np.mean(mask))
+
+
+def _looks_like_safety_buoy(box, frame_hw, frame_bgr=None) -> bool:
+    """안전 부표로 보이는지 (먼 바다 줄 + 가까운 입수대 '점' 부표).
+
+    가까운 입수대에서는 중간 크기 후보를 튜브로 남긴다.
+    부표로 자르는 경우: (1) 아주 작음 (2) 작~중 + 부표색 뚜렷.
+    """
+    if frame_hw is None:
+        return False
+    h, w = frame_hw
+    cy = _box_cy_frac(box, h)
+    if not (WATER_Y_TOP <= cy <= TUBE_Y_BOT):
+        return False
+    bw = max(0.0, float(box[2]) - float(box[0]))
+    bh = max(0.0, float(box[3]) - float(box[1]))
+    area_frac = (bw * bh) / float(max(1, h * w))
+    colored = (
+        frame_bgr is not None
+        and _buoy_color_fraction(frame_bgr, box) >= BUOY_COLOR_FRAC
+    )
+
+    if cy < FAR_WATER_Y:
+        small = area_frac <= FAR_MAX_AREA_FRAC or bh <= FAR_MAX_BOX_H_FRAC * h
+        return bool(small)
+
+    # 가까운 입수대·물가: 점 크기만 무조건 부표, 그 이상은 색이 맞을 때만
+    if area_frac <= NEAR_BUOY_MAX_AREA_FRAC or bh <= NEAR_BUOY_MAX_H_FRAC * h:
+        return True
+    if colored and area_frac <= NEAR_BUOY_COLOR_AREA:
+        return True
+    return False
+
+
+def _near_any_box(box, others: list, frame_hw, dist_frac: float) -> bool:
+    """박스 중심이 다른 확정 박스 중심과 가까우면 True."""
+    if not others or frame_hw is None:
+        return False
+    h, w = frame_hw
+    diag = (h * h + w * w) ** 0.5
+    lim = dist_frac * diag
+    cx = (float(box[0]) + float(box[2])) * 0.5
+    cy = (float(box[1]) + float(box[3])) * 0.5
+    for o in others:
+        ox = (float(o[0]) + float(o[2])) * 0.5
+        oy = (float(o[1]) + float(o[3])) * 0.5
+        if ((cx - ox) ** 2 + (cy - oy) ** 2) ** 0.5 <= lim:
+            return True
+    return False
+
+
+def _parasol_color_fraction(frame_bgr: np.ndarray, box) -> float:
+    """박스 내 파라솔(빨강·주황·갈대색) 픽셀 비율."""
+    if frame_bgr is None:
+        return 0.0
+    h, w = frame_bgr.shape[:2]
+    x1 = max(0, int(round(box[0])))
+    y1 = max(0, int(round(box[1])))
+    x2 = min(w, int(round(box[2])))
+    y2 = min(h, int(round(box[3])))
+    if x2 - x1 < 2 or y2 - y1 < 2:
+        return 0.0
+    hsv = cv2.cvtColor(frame_bgr[y1:y2, x1:x2], cv2.COLOR_BGR2HSV)
+    hh = hsv[..., 0]
+    ss = hsv[..., 1].astype(np.float32) / 255.0
+    vv = hsv[..., 2].astype(np.float32) / 255.0
+    # 빨강(랩어라운드) + 주황~갈대
+    red = ((hh <= 10) | (hh >= 170)) & (ss >= PARASOL_S_MIN) & (vv >= PARASOL_V_MIN)
+    warm = (hh >= 8) & (hh <= 28) & (ss >= PARASOL_S_MIN) & (vv >= PARASOL_V_MIN)
+    return float(np.mean(red | warm))
+
+
+def _looks_like_parasol(box, frame_hw, frame_bgr=None) -> bool:
+    """해변 파라솔 캐노피: 가로로 넓고 빨강·주황 천 비율이 높은 경우만.
+
+    세로형(서 있는 사람) 박스는 절대 파라솔로 보지 않는다.
+    """
+    if frame_hw is None:
+        return False
+    h, w = frame_hw
+    bw = max(1.0, float(box[2]) - float(box[0]))
+    bh = max(1.0, float(box[3]) - float(box[1]))
+    w_over_h = bw / bh
+    # 세로형·정사각에 가까운 박스는 사람 후보
+    if w_over_h < PARASOL_MIN_W_OVER_H:
+        return False
+    colored = _parasol_color_fraction(frame_bgr, box) >= PARASOL_COLOR_FRAC
+    if colored:
+        return True
+    # 색이 약해도 매우 넓은 모래 위 캐노피
+    if w_over_h >= 2.0 and (bw * bh) / float(max(1, h * w)) >= 0.0015:
+        return True
+    return False
 
 
 def is_confident_person_box(box, frame_hw=None, frame_bgr=None) -> bool:
     """사람으로 '확실히' 인정할지 구역(물/모래) 인지로 판정.
 
-    - 클래스 person 인 후보만 전달된다고 가정
-    - 공통: 크기·프레임 대비 비율 하한/상한
-    - 표준(서있는 사람): conf≥0.35 + 세로형. 물 구역이면 거품(파도) 색상 검사 추가
-    - 물 구역: 수영자(작은 박스, conf≥0.20) / 튜브 등 가로형(conf≥0.40) 허용
-    - 모래 구역: 앉음·파라솔 아래(낮고 넓음, conf≥0.28) 허용
+    - 모래: 서있는 사람 문턱을 낮춰 회수↑, 파라솔 캐노피는 색·가로비로 기각
+    - 물: 수영자/가로형 + 거품 검사, 먼 바다 부표 억제
     """
     x1, y1, x2, y2, score = box
     bw = max(0.0, float(x2) - float(x1))
@@ -656,37 +1005,58 @@ def is_confident_person_box(box, frame_hw=None, frame_bgr=None) -> bool:
     zone = "std"
     if frame_hw is not None:
         h, w = frame_hw
-        # 프레임 밖·거의 점 수준 노이즈 제거
         if x2 <= 0 or y2 <= 0 or x1 >= w or y1 >= h:
             return False
         frame_area = float(max(1, h * w))
         if area / frame_area > PERSON_MAX_AREA_FRAC:
             return False
-        # 박스 폭이 프레임의 과도한 비율이면 구조물/배로 간주
         if bw > PERSON_MAX_WIDTH_FRAC * w:
             return False
-        # 박스 하단(발/수면 접점) 위치로 구역 판정
+        if _looks_like_safety_buoy(box, frame_hw, frame_bgr):
+            return False
         y_bot = float(y2) / float(max(1, h))
         if WATER_Y_TOP <= y_bot < WATER_Y_BOT:
             zone = "water"
         elif y_bot >= WATER_Y_BOT:
             zone = "beach"
+            if _looks_like_parasol(box, frame_hw, frame_bgr):
+                return False
     w_over_h = (bw / bh) if bh > 1e-6 else 99.0
     h_over_w = (bh / bw) if bw > 1e-6 else 99.0
 
-    # 표준 규칙: 서있는 사람 (기존 동작 유지)
+    if zone == "beach":
+        # 해변 서있는 사람: 전역보다 낮은 확신, 세로형, 파라솔 폭 제한
+        if (
+            score >= BEACH_STAND_MIN_CONF
+            and w_over_h <= BEACH_STAND_MAX_W_OVER_H
+            and h_over_w >= BEACH_STAND_MIN_H_OVER_W
+        ):
+            return True
+        # 앉음·파라솔 아래(사람만): 가로비 상한을 캐노피보다 낮게
+        if (
+            score >= BEACH_SIT_MIN_CONF
+            and h_over_w >= BEACH_SIT_MIN_H_OVER_W
+            and w_over_h <= BEACH_SIT_MAX_W_OVER_H
+        ):
+            return True
+        return False
+
+    # 먼 바다: 전역보다 높은 확신 요구 (부표 오탐 억제)
+    need = FAR_PERSON_MIN_CONF if _in_far_water(box, frame_hw) else PERSON_MIN_CONF
+
+    # 표준 규칙: 서있는 사람 (물·기타)
     if (
-        score >= PERSON_MIN_CONF
+        score >= need
         and w_over_h <= PERSON_MAX_ASPECT_W_OVER_H
         and h_over_w >= PERSON_MIN_ASPECT_H_OVER_W
     ):
-        # 물 구역에서는 파도 거품 오탐을 색상으로 차단
         if zone == "water" and _looks_like_foam(box, frame_bgr):
             return False
         return True
 
     if zone == "water":
-        # 수영자: 머리·상체만 → 작은 정사각형~세로형, 확신 완화
+        if _in_far_water(box, frame_hw):
+            return False
         is_small = frame_hw is not None and bh <= SWIMMER_MAX_H_FRAC * frame_hw[0]
         if (
             is_small
@@ -694,19 +1064,9 @@ def is_confident_person_box(box, frame_hw=None, frame_bgr=None) -> bool:
             and w_over_h <= SWIMMER_MAX_W_OVER_H
         ):
             return not _looks_like_foam(box, frame_bgr)
-        # 튜브·서프보드 위: 가로형 허용하되 확신 요구
         if score >= FLOAT_MIN_CONF and w_over_h <= FLOAT_MAX_W_OVER_H:
             return not _looks_like_foam(box, frame_bgr)
         return False
-
-    if zone == "beach":
-        # 앉음·파라솔 아래: 낮고 넓은 실루엣 허용
-        if (
-            score >= BEACH_SIT_MIN_CONF
-            and h_over_w >= BEACH_SIT_MIN_H_OVER_W
-            and w_over_h <= BEACH_SIT_MAX_W_OVER_H
-        ):
-            return True
 
     return False
 
@@ -846,8 +1206,10 @@ def detect_people_fast(
     if not confirm:
         return boxes_to_centers(boxes), boxes
     confirmed, _ = split_person_candidates(boxes, frame_hw=(h, w), frame_bgr=clean)
-    confirmed = confirmed + filter_tubes(tube_boxes, (h, w), confirmed)
-    return boxes_to_centers(confirmed), confirmed
+    tubes_ok = filter_tubes(tube_boxes, (h, w), confirmed, frame_bgr=clean)
+    out_boxes = confirmed + tubes_ok
+    centers = boxes_to_centers(confirmed + _tubes_for_count(tubes_ok, confirmed))
+    return centers, out_boxes
 
 
 def detect_people_fast_max(
@@ -912,7 +1274,11 @@ def _box_iou(a, b) -> float:
 
 
 def nms_boxes(boxes: list, iou_thresh: float = SAHI_NMS_IOU) -> list:
-    """score 내림차순 NMS. box=(x1,y1,x2,y2,score)."""
+    """score 내림차순 NMS. box=(x1,y1,x2,y2,score[,cls]).
+
+    같은 클래스끼리만 억제한다. person↔tube가 겹쳐도(튜브 탄 사람)
+    확신 낮은 튜브를 지우지 않음 — 클래스 무시 NMS는 tube recall을 죽임.
+    """
     if not boxes:
         return []
     ordered = sorted(boxes, key=lambda b: b[4], reverse=True)
@@ -920,7 +1286,11 @@ def nms_boxes(boxes: list, iou_thresh: float = SAHI_NMS_IOU) -> list:
     while ordered:
         best = ordered.pop(0)
         keep.append(best)
-        ordered = [b for b in ordered if _box_iou(best, b) < iou_thresh]
+        bc = best[5] if len(best) >= 6 else 0
+        ordered = [
+            b for b in ordered
+            if (b[5] if len(b) >= 6 else 0) != bc or _box_iou(best, b) < iou_thresh
+        ]
     return keep
 
 
@@ -968,7 +1338,8 @@ def detect_people_sahi(
         cat_id = getattr(p.category, "id", None)
         if name == "person" or cat_id in (0, "0"):
             cls = 0
-        elif name == TUBE_CLASS_NAME:  # 파인튜닝 모델만 이 클래스명을 가짐
+        elif name == TUBE_CLASS_NAME or cat_id in (1, "1"):
+            # 이름 또는 id=1 둘 다 허용 (SAHI가 id만 넘기는 경우 대비)
             cls = 1
         else:
             continue
@@ -1072,8 +1443,10 @@ def detect_people_sahi_max(
     confirmed, rejected = split_person_candidates(
         persons, frame_hw=(h0, w0), frame_bgr=frame_bgr
     )
-    confirmed = confirmed + filter_tubes(tubes, (h0, w0), confirmed)
-    return boxes_to_centers(confirmed), confirmed, rejected
+    tubes_ok = filter_tubes(tubes, (h0, w0), confirmed, frame_bgr=frame_bgr)
+    out_boxes = confirmed + tubes_ok
+    centers = boxes_to_centers(confirmed + _tubes_for_count(tubes_ok, confirmed))
+    return centers, out_boxes, rejected
 
 
 def detect_people_sahi_band(
@@ -1127,11 +1500,11 @@ def _split_by_class(boxes: list) -> tuple[list, list]:
     return persons, tubes
 
 
-def filter_tubes(tubes: list, frame_hw, confirmed_persons: list) -> list:
-    """튜브 박스 확정: 물 구역·형태·확신도 + 확정 사람과 중복 제거.
+def filter_tubes(tubes: list, frame_hw, confirmed_persons: list, frame_bgr=None) -> list:
+    """튜브 박스 확정: 물 구역·형태·확신도 + 부표/파도 억제.
 
-    피서객은 물에서만 튜브를 쓰므로, 확정된 튜브는 '사람 1명' 지표로
-    confirmed에 합산한다. 이미 같은 자리에 확정 사람이 있으면 중복 방지.
+    사람과 겹치는 튜브도 파란 박스로는 남긴다(인식률).
+    인원 합산에서 중복 제거는 detect_* 쪽에서 centers만 걸러 한다.
     """
     if not tubes:
         return []
@@ -1142,19 +1515,45 @@ def filter_tubes(tubes: list, frame_hw, confirmed_persons: list) -> list:
         if s < TUBE_MIN_CONF:
             continue
         cy = (y1 + y2) / 2.0 / max(1.0, float(h))
-        if not (WATER_Y_TOP <= cy <= WATER_Y_BOT):
-            continue  # 튜브는 물에서만 의미(모래 위 방치 튜브 제외)
+        if not (WATER_Y_TOP <= cy <= TUBE_Y_BOT):
+            continue
+        # 모래 깊숙이(파라솔 줄)로 내려간 건 튜브가 아님 — 물가 띠만
+        if cy > WATER_Y_BOT and cy <= TUBE_Y_BOT:
+            # 물가~얕은 모래: 너무 작으면 부표/잡음
+            pass
+        if _looks_like_safety_buoy(b, frame_hw, frame_bgr):
+            continue
+        # 튜브 foam: 사람용보다 덜 민감 (색 있는 튜브 보호)
+        if frame_bgr is not None and float(b[4]) < FOAM_OVERRIDE_CONF:
+            if _foam_fraction(frame_bgr, b) >= TUBE_FOAM_REJECT_FRAC:
+                continue
         bw = max(1.0, x2 - x1)
         bh = max(1.0, y2 - y1)
+        area_frac = (bw * bh) / float(max(1, h * w))
+        # 아주 작은 점만: 옆에 사람 없으면 부표로 간주
+        if cy >= FAR_WATER_Y and area_frac < NEAR_TUBE_MIN_AREA_FRAC:
+            if not _near_any_box(b, confirmed_persons, frame_hw, TUBE_NEAR_PERSON_DIST):
+                continue
+        if cy < FAR_WATER_Y:
+            if s < FAR_TUBE_MIN_CONF:
+                continue
+            if not _near_any_box(b, confirmed_persons, frame_hw, TUBE_NEAR_PERSON_DIST):
+                continue
         ratio = bw / bh
         if not (TUBE_MIN_W_OVER_H <= ratio <= TUBE_MAX_W_OVER_H):
             continue
         if (bw * bh) > PERSON_MAX_AREA_FRAC * w * h:
             continue
-        if any(_box_iou(b, p) >= TUBE_DUP_IOU for p in confirmed_persons):
-            continue  # 그 자리 사람 이미 확정 → 이중 집계 방지
-        out.append(b)
+        out.append((float(x1), float(y1), float(x2), float(y2), float(s), 1))
     return out
+
+
+def _tubes_for_count(tubes: list, confirmed_persons: list) -> list:
+    """인원 합산용: 확정 사람과 겹치는 튜브는 제외(이중 집계 방지)."""
+    return [
+        t for t in tubes
+        if not any(_box_iou(t, p) >= TUBE_DUP_IOU for p in confirmed_persons)
+    ]
 
 
 def detect_people_sahi_fast(
@@ -1168,7 +1567,8 @@ def detect_people_sahi_fast(
 ):
     """FAST: 원근 밴드별 경량 SAHI(하늘 크롭) → NMS → 구역인지 필터.
 
-    파인튜닝 모델(tube 클래스 보유) 사용 시 물 위 튜브를 사람 1명으로 합산.
+    파인튜닝 모델(tube 클래스 보유) 사용 시 물 위 튜브를 사람 1명 지표로 합산.
+    사람과 겹친 튜브는 화면(파란 박스)에는 남기고, centers(인원)에는 넣지 않는다.
     """
     h, w = frame_bgr.shape[:2]
     merged: list = []
@@ -1184,8 +1584,10 @@ def detect_people_sahi_fast(
     confirmed, rejected = split_person_candidates(
         persons, frame_hw=(h, w), frame_bgr=frame_bgr
     )
-    confirmed = confirmed + filter_tubes(tubes, (h, w), confirmed)
-    return boxes_to_centers(confirmed), confirmed, rejected
+    tubes_ok = filter_tubes(tubes, (h, w), confirmed, frame_bgr=frame_bgr)
+    boxes = confirmed + tubes_ok
+    centers = boxes_to_centers(confirmed + _tubes_for_count(tubes_ok, confirmed))
+    return centers, boxes, rejected
 
 
 def _sahi_autodm_device() -> str:
@@ -1220,7 +1622,8 @@ def draw_yolo_boxes(
         )
         cv2.polylines(out, [pts], True, (0, 255, 255), 1, cv2.LINE_AA)
 
-    for x1, y1, x2, y2, conf in rejected or []:
+    for r in rejected or []:
+        x1, y1, x2, y2, conf = r[0], r[1], r[2], r[3], r[4]
         p1, p2 = (int(x1), int(y1)), (int(x2), int(y2))
         cv2.rectangle(out, p1, p2, (140, 140, 140), 2)
         cv2.putText(
@@ -1234,25 +1637,34 @@ def draw_yolo_boxes(
             cv2.LINE_AA,
         )
 
-    for x1, y1, x2, y2, conf in boxes:
+    tube_n = 0
+    for b in boxes:
+        x1, y1, x2, y2, conf = b[0], b[1], b[2], b[3], b[4]
+        is_tube = len(b) >= 6 and int(b[5]) == 1
         p1 = (int(x1), int(y1))
         p2 = (int(x2), int(y2))
-        cv2.rectangle(out, p1, p2, (0, 220, 255), 2)
+        # 튜브: 하늘색~파랑(BGR (255,150,0)) / 사람: 기존 노랑주황(0,220,255)
+        color = (255, 150, 0) if is_tube else (0, 220, 255)
+        label = f"tube {conf:.2f}" if is_tube else f"person {conf:.2f}"
+        if is_tube:
+            tube_n += 1
+        cv2.rectangle(out, p1, p2, color, 2)
         cv2.putText(
             out,
-            f"person {conf:.2f}",
+            label,
             (p1[0], max(16, p1[1] - 6)),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.45,
-            (0, 220, 255),
+            color,
             1,
             cv2.LINE_AA,
         )
 
     rej_n = len(rejected or [])
+    person_n = len(boxes) - tube_n
     cv2.putText(
         out,
-        f"{title}  person={len(boxes)}  rejected={rej_n}  minConf>={PERSON_MIN_CONF:.2f}",
+        f"{title}  person={person_n}  tube={tube_n}  rejected={rej_n}  minConf>={PERSON_MIN_CONF:.2f}",
         (8, 24),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.55,
@@ -1479,7 +1891,7 @@ def fast_analyze_loop(
                 continue
             STORE.status = "ok"
             h, w = raw.shape[:2]
-            roi_mask, _ = make_roi_mask(h, w, LIVE_ROI)
+            roi_mask, _ = make_live_roi_mask(h, w)
             H = scale_homography_for_frame(w, h)
             with INFER_LOCK:
                 if PRECISE_WANT.is_set():
@@ -1533,6 +1945,32 @@ def fast_analyze_loop(
 
     while True:
         t0 = time.perf_counter()
+        # UI '모델 재적용' 버튼 → 다음 사이클에 새 가중치로 무중단 교체
+        if MODEL_RELOAD_REQUEST.is_set():
+            new_path = resolve_fast_sahi_model()
+            set_reload_meta(state="reloading", path=new_path)
+            try:
+                with INFER_LOCK:
+                    sahi_model = AutoDetectionModel.from_pretrained(
+                        model_type="yolov8",
+                        model_path=new_path,
+                        confidence_threshold=conf if conf > 0 else SAHI_CONF,
+                        device=sahi_dev,
+                        image_size=FAST_SAHI_IMGSZ,
+                    )
+                stabilizer.buf.clear()
+                set_reload_meta(
+                    state="done",
+                    path=new_path,
+                    doneAt=datetime.now(timezone.utc).isoformat(),
+                    error=None,
+                )
+                eprint(f"[reload] FAST 모델 교체 완료 → {new_path}")
+            except Exception as exc:  # noqa: BLE001
+                set_reload_meta(state="error", error=str(exc))
+                eprint(f"[reload] 모델 교체 실패: {exc}")
+            finally:
+                MODEL_RELOAD_REQUEST.clear()
         if PRECISE_WANT.is_set():
             # PRECISE가 락을 기다리는 중이면 FAST는 새 추론을 시작하지 않음
             time.sleep(0.15)
@@ -1543,7 +1981,7 @@ def fast_analyze_loop(
             continue
         STORE.status = "ok"
         h, w = raw.shape[:2]
-        roi_mask, _ = make_roi_mask(h, w, LIVE_ROI)
+        roi_mask, _ = make_live_roi_mask(h, w)
         H = scale_homography_for_frame(w, h)
         with INFER_LOCK:
             if PRECISE_WANT.is_set():
@@ -1645,7 +2083,7 @@ def precise_analyze_loop(
                 continue
 
             h, w = raw.shape[:2]
-            roi_mask, _ = make_roi_mask(h, w, LIVE_ROI)
+            roi_mask, _ = make_live_roi_mask(h, w)
             H = scale_homography_for_frame(w, h)
 
             set_precise_meta(state="running", progress="water", lastError=None)
@@ -1837,6 +2275,49 @@ def analyze_loop(
         )
 
 
+def inspect_fast_model(load_classes: bool = False) -> dict:
+    """FAST가 로드할 모델(파인튜닝 우선) 파일 상태 확인.
+
+    load_classes=True 면 클래스(사람/튜브)까지 읽는다(YOLO 로드 → 느릴 수 있음).
+    재시작 버튼은 응답이 빨라야 하므로 기본 False(파일 정보만)로 쓴다.
+    """
+    path = resolve_fast_sahi_model()
+    p = Path(path)
+    info: dict = {"path": str(path), "isLocalFile": p.exists()}
+    if not p.exists():
+        return info
+    st = p.stat()
+    info["sizeMB"] = round(st.st_size / (1024 * 1024), 1)
+    info["modifiedAt"] = datetime.fromtimestamp(st.st_mtime, tz=KST).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+    if load_classes:
+        try:
+            # 추론 루프와 경합 방지를 위해 락 안에서 잠깐 로드.
+            with INFER_LOCK:
+                names = YOLO(str(p)).names
+            info["classes"] = names
+        except Exception as exc:  # noqa: BLE001
+            info["classesError"] = str(exc)
+    return info
+
+
+def request_model_reload() -> dict:
+    """FAST 루프에 무중단 모델 교체를 요청(다음 사이클에 새 가중치 로드).
+
+    Windows에서 프로세스 자기 재시작(os.execv)은 리스닝 소켓을 놓지 못해
+    포트가 죽은 PID에 묶이는 문제가 있어, 프로세스는 유지하고 모델만 교체한다.
+    """
+    set_reload_meta(
+        state="reloading",
+        requestedAt=datetime.now(timezone.utc).isoformat(),
+        doneAt=None,
+        error=None,
+    )
+    MODEL_RELOAD_REQUEST.set()
+    return get_reload_meta()
+
+
 def create_app() -> Flask:
     app = Flask(__name__)
 
@@ -1861,6 +2342,8 @@ def create_app() -> Flask:
             "status": ps.get("status"),
         }
         snap["crowd"] = get_crowd_meta()
+        snap["reload"] = get_reload_meta()
+        snap["pack"] = get_pack_meta()
         return jsonify(snap)
 
     @app.get("/api/telecom")
@@ -1868,6 +2351,65 @@ def create_app() -> Flask:
         """SK 지오비전 퍼즐 장소 혼잡도 (보조). ?force=1 로 캐시 무시."""
         force = str(request.args.get("force", "")).lower() in ("1", "true", "yes")
         return jsonify(fetch_sk_congestion(force=force))
+
+    @app.get("/api/model-info")
+    def model_info():
+        """FAST가 로드할 모델(파인튜닝 우선) 파일 상태·클래스."""
+        return jsonify(inspect_fast_model(load_classes=True))
+
+    @app.post("/api/reload-model")
+    def reload_model():
+        """저장된 파인튜닝 모델을 확인하고 무중단으로 재적용.
+
+        - models/yolo26s_beach_ft.pt 가 없으면 재적용하지 않고 안내.
+        - 있으면 FAST 루프가 다음 사이클에 새 가중치로 교체(다운타임 없음).
+        """
+        info = inspect_fast_model()
+        if not info.get("isLocalFile"):
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "message": "파인튜닝 모델 파일이 없습니다: " + info.get("path", "?")
+                        + "  (Drive의 best.pt를 vision/models/yolo26s_beach_ft.pt 로 저장하세요)",
+                        "model": info,
+                    }
+                ),
+                404,
+            )
+        request_model_reload()
+        return jsonify(
+            {
+                "ok": True,
+                "message": "모델 확인 완료 · 다음 사이클에 무중단 재적용",
+                "model": info,
+            }
+        )
+
+    @app.post("/api/pack-dataset")
+    def pack_dataset():
+        """수집된 프레임으로 Colab 학습용 zip 생성(백그라운드)."""
+        started = request_pack_dataset()
+        if not started:
+            return (
+                jsonify({"ok": False, "message": "이미 ZIP 생성 중입니다."}),
+                409,
+            )
+        return jsonify({"ok": True, "message": "ZIP 생성 시작"})
+
+    @app.get("/api/dataset-zip")
+    def dataset_zip():
+        """생성된 학습용 zip 다운로드."""
+        if not DATASET_ZIP.exists():
+            return (
+                jsonify({"ok": False, "message": "zip이 아직 없습니다. 먼저 생성하세요."}),
+                404,
+            )
+        return send_file(
+            str(DATASET_ZIP),
+            as_attachment=True,
+            download_name="gwangalli_colab.zip",
+        )
 
     @app.get("/stream")
     def stream():
@@ -2057,6 +2599,18 @@ def create_app() -> Flask:
     }
     .danger { color: #ffb4b4; }
     .ok { color: #b8f5b8; }
+    .controls {
+      display: flex; align-items: center; gap: 10px;
+      flex-wrap: wrap; margin: 0 0 12px; max-width: 1100px;
+    }
+    button.reload {
+      background: #1f6fe5; color: #fff; border: 0;
+      padding: 9px 16px; font-size: 14px; font-weight: 600;
+      border-radius: 6px; cursor: pointer;
+    }
+    button.reload:hover { background: #1a5fc4; }
+    button.reload:disabled { background: #444; cursor: not-allowed; }
+    #reloadStatus { font-size: 12px; color: #9fb7d8; }
   </style>
 </head>
 <body>
@@ -2096,6 +2650,17 @@ def create_app() -> Flask:
   <img src="/stream" alt="safety map"/>
 
   <div id="alert" class="ok"></div>
+
+  <h2>관리 도구</h2>
+  <div class="controls">
+    <button class="reload" id="packBtn" onclick="packDataset()">학습용 ZIP 생성</button>
+    <span id="packStatus">수집된 프레임(finetune/raw)으로 Colab 학습용 zip을 만듭니다.</span>
+  </div>
+  <div class="controls">
+    <button class="reload" id="reloadBtn" onclick="reloadModel()">모델 재적용 &amp; 서버 재시작</button>
+    <span id="reloadStatus">파인튜닝 모델(models/yolo26s_beach_ft.pt)을 확인하고 무중단 재적용합니다.</span>
+  </div>
+
   <script>
     function skLevelClass(level) {
       if (level === 1) return 'lvl1';
@@ -2222,6 +2787,112 @@ def create_app() -> Flask:
         document.getElementById('meta').textContent = '상태 조회 실패';
       }
     }
+    async function packDataset() {
+      const btn = document.getElementById('packBtn');
+      const st = document.getElementById('packStatus');
+      if (!confirm('지금까지 수집된 프레임으로 Colab 학습용 ZIP을 만들까요?\\n프레임 수에 따라 수십 초 걸릴 수 있습니다.')) return;
+      btn.disabled = true;
+      st.textContent = 'ZIP 생성 시작…';
+      try {
+        const r = await fetch('/api/pack-dataset', { method: 'POST' }).then(x => x.json());
+        if (!r.ok) {
+          st.textContent = '실패: ' + (r.message || '알 수 없는 오류');
+          btn.disabled = false;
+          return;
+        }
+        waitForPack(st, btn);
+      } catch (e) {
+        st.textContent = '요청 실패: ' + e;
+        btn.disabled = false;
+      }
+    }
+
+    async function waitForPack(st, btn) {
+      const t0 = Date.now();
+      for (let i = 0; i < 200; i++) {
+        await new Promise(res => setTimeout(res, 1500));
+        try {
+          const r = await fetch('/api/status', { cache: 'no-store' }).then(x => x.json());
+          const pk = r.pack || {};
+          const elapsed = Math.round((Date.now() - t0) / 1000);
+          if (pk.state === 'done') {
+            st.innerHTML = 'ZIP 완료 · ' + (pk.frames || 0) + '장 · ' +
+              (pk.sizeMB != null ? pk.sizeMB + 'MB' : '') +
+              ' (' + elapsed + 's) · ' +
+              '<a href="/api/dataset-zip" style="color:#7fb2ff">다운로드</a>' +
+              ' → Drive에 올리고 Colab 실행';
+            btn.disabled = false;
+            return;
+          }
+          if (pk.state === 'error') {
+            st.textContent = 'ZIP 오류: ' + (pk.error || '알 수 없음');
+            btn.disabled = false;
+            return;
+          }
+          st.textContent = 'ZIP 생성 중… (' + (pk.frames || 0) + '장 포함, ' + elapsed + 's)';
+        } catch (e) {
+          /* 일시적 실패 무시하고 계속 폴링 */
+        }
+      }
+      st.textContent = 'ZIP 생성 확인 시간 초과 · 잠시 후 다시 시도해주세요';
+      btn.disabled = false;
+    }
+
+    async function reloadModel() {
+      const btn = document.getElementById('reloadBtn');
+      const st = document.getElementById('reloadStatus');
+      if (!confirm('저장된 파인튜닝 모델을 확인하고 다시 적용할까요?\\n다음 분석 사이클에 무중단으로 교체됩니다(스트림 안 끊김).')) return;
+      btn.disabled = true;
+      st.textContent = '모델 확인 중…';
+      try {
+        const r = await fetch('/api/reload-model', { method: 'POST' }).then(x => x.json());
+        if (!r.ok) {
+          st.textContent = '실패: ' + (r.message || '알 수 없는 오류');
+          btn.disabled = false;
+          return;
+        }
+        const m = r.model || {};
+        st.textContent = '적용 모델: ' + (m.path || '?') +
+          ' · ' + (m.sizeMB != null ? m.sizeMB + 'MB' : '?') +
+          ' · ' + (m.modifiedAt || '') + ' · 교체 대기 중…';
+        waitForReload(st, btn);
+      } catch (e) {
+        st.textContent = '요청 실패: ' + e;
+        btn.disabled = false;
+      }
+    }
+
+    async function waitForReload(st, btn) {
+      const t0 = Date.now();
+      for (let i = 0; i < 120; i++) {
+        await new Promise(res => setTimeout(res, 1500));
+        try {
+          const r = await fetch('/api/status', { cache: 'no-store' }).then(x => x.json());
+          const rl = r.reload || {};
+          const elapsed = Math.round((Date.now() - t0) / 1000);
+          if (rl.state === 'done') {
+            st.textContent = '재적용 완료 · 새 모델 반영됨 (' + elapsed + 's)';
+            btn.disabled = false;
+            document.querySelectorAll('img').forEach(im => {
+              const base = im.src.split('?')[0];
+              im.src = base + '?t=' + Date.now();
+            });
+            return;
+          }
+          if (rl.state === 'error') {
+            st.textContent = '재적용 오류: ' + (rl.error || '알 수 없음');
+            btn.disabled = false;
+            return;
+          }
+          st.textContent = '모델 교체 대기 중… (' + elapsed + 's, 다음 사이클에 반영)';
+        } catch (e) {
+          /* 일시적 실패는 무시하고 계속 폴링 */
+        }
+      }
+      st.textContent = '재적용 확인 시간 초과 · 잠시 후 다시 시도해주세요';
+      btn.disabled = false;
+    }
+
     tick();
     setInterval(tick, 1000);
   </script>

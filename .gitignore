@@ -26,4 +26,10 @@ vision/finetune/_flagged.json
 vision/finetune/*.zip
 vision/**/*_openvino_model/
 *.pt
+*.pth
 *.bin
+*.onnx
+# 대용량 아카이브/데이터셋 (콜랩 업로드용 등) — 커밋 금지
+*.zip
+vision/finetune/gwangalli_dataset*/
+vision/finetune/_tube_done.txt

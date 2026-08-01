@@ -72,12 +72,13 @@ def build_model(teacher: bool, override: str | None) -> AutoDetectionModel:
 
 
 def to_yolo_line(box, w: int, h: int) -> str:
-    x1, y1, x2, y2, _s = box
+    x1, y1, x2, y2 = box[0], box[1], box[2], box[3]
+    cls = int(box[5]) if len(box) >= 6 else 0  # 0=person, 1=tube(파인튜닝 모델)
     cx = ((x1 + x2) / 2.0) / w
     cy = ((y1 + y2) / 2.0) / h
     bw = (x2 - x1) / w
     bh = (y2 - y1) / h
-    return f"0 {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}"
+    return f"{cls} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}"
 
 
 def make_sahi_detector(model, bands):
@@ -113,7 +114,8 @@ def process_frame(detect, fp: Path, img_dir: Path, lbl_dir: Path,
     if img is None:
         return -1
     h, w = img.shape[:2]
-    roi_mask, _ = R.make_roi_mask(h, w, R.LIVE_ROI)
+    # 고정 오탐 제외 구역(EXCLUDE_ZONES) 반영 마스크 (우측 하단 에어바운스 등)
+    roi_mask, _ = R.make_live_roi_mask(h, w)
     confirmed = detect(img, roi_mask)
 
     shutil.copy2(fp, img_dir / fp.name)
@@ -122,10 +124,12 @@ def process_frame(detect, fp: Path, img_dir: Path, lbl_dir: Path,
 
     if prev_dir is not None:
         vis = img.copy()
-        for (x1, y1, x2, y2, _s) in confirmed:
-            # 마젠타 굵은 박스: 모래·바다 어디서든 눈에 띔 (검수용)
-            cv2.rectangle(vis, (int(x1), int(y1)), (int(x2), int(y2)),
-                          (255, 0, 255), 2)
+        for b in confirmed:
+            x1, y1, x2, y2 = b[0], b[1], b[2], b[3]
+            is_tube = len(b) >= 6 and int(b[5]) == 1
+            # 사람=마젠타, 튜브=하늘색: 모래·바다 어디서든 눈에 띔 (검수용)
+            color = (255, 200, 0) if is_tube else (255, 0, 255)
+            cv2.rectangle(vis, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
         # 좌상단 인원수 배너: 썸네일에서도 과탐(파도 오탐) 프레임을 바로 식별
         txt = f"persons={len(confirmed)}"
         cv2.rectangle(vis, (0, 0), (330, 54), (0, 0, 0), -1)
