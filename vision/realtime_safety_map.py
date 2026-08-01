@@ -104,16 +104,17 @@ def make_live_roi_mask(h: int, w: int):
 CELL_W = 40
 CELL_H = 15
 # 사람/비사람: 저확신은 스케일 합의, 고확신은 단독 통과 + 형태필터
-# 균형값: 0.08=허공 제안 폭주, 0.16=회수 과소 → 0.12
-PERSON_PROPOSAL_CONF = float(os.environ.get("VISION_PROPOSAL_CONF", "0.12"))
+# 제안 conf: 0.08=허공 폭주, 너무 높이면 회수↓ → 0.10
+PERSON_PROPOSAL_CONF = float(os.environ.get("VISION_PROPOSAL_CONF", "0.10"))
 # 파인튜닝(yolo26s_beach_ft) 모델은 확신도가 낮게 나오는 경향이 있음.
 # 전역으로 너무 낮추면(0.12~0.16) 먼 바다 안전 부표가 튜브/사람으로 통과함.
-# → 전역은 중간값, 먼 바다(부표 띠)는 별도 엄격 규칙으로 분리.
-PERSON_MIN_CONF = float(os.environ.get("VISION_PERSON_MIN_CONF", "0.22"))
+PERSON_MIN_CONF = float(os.environ.get("VISION_PERSON_MIN_CONF", "0.20"))
 PERSON_HIGH_CONF = 0.35
-PERSON_MIN_BOX_AREA = 36.0
-PERSON_MIN_BOX_H = 10.0
-PERSON_MIN_AREA_FRAC = 0.00005  # 프레임 대비 너무 작은 점 노이즈 차단
+# 원거리 수영자/해변 사람은 1080p에서 박스 면적이 10~40px인 경우가 많음.
+# AREA_FRAC 하한(예: 2e-5≈41px)을 두면 거의 전부가 size로 기각됨 → 하한 없음.
+# 허공 오탐은 empty_water·tube색·부표/파라솔 필터로 막는다.
+PERSON_MIN_BOX_AREA = 12.0
+PERSON_MIN_BOX_H = 6.0
 PERSON_MAX_ASPECT_W_OVER_H = 1.8  # 우산·파라솔·배(가로형) 강하게 차단 (서있는 사람 기준)
 PERSON_MIN_ASPECT_H_OVER_W = 0.70  # 세로형(사람) 선호 (서있는 사람 기준)
 PERSON_MAX_AREA_FRAC = 0.05
@@ -147,12 +148,11 @@ SWIMMER_MAX_W_OVER_H = 1.5
 FLOAT_MIN_CONF = 0.28
 FLOAT_MAX_W_OVER_H = 2.6
 # 모래: 서 있는 사람 / 파라솔(빨간·가로형 캐노피) 기각
-# 0.40은 회수 과소 → 0.25 (빈모래 오탐은 최소크기·파라솔필터로)
-BEACH_STAND_MIN_CONF = float(os.environ.get("VISION_BEACH_STAND_MIN_CONF", "0.25"))
+BEACH_STAND_MIN_CONF = float(os.environ.get("VISION_BEACH_STAND_MIN_CONF", "0.18"))
 BEACH_STAND_MAX_W_OVER_H = 1.65   # 서있는 사람: 파라솔(≥1.2 가로)보다 좁은 편
 BEACH_STAND_MIN_H_OVER_W = 0.60
 # 앉음·파라솔 아래 사람: 낮고 넓은 실루엣. 다만 캐노피만큼 넓으면 안 됨.
-BEACH_SIT_MIN_CONF = 0.22
+BEACH_SIT_MIN_CONF = 0.18
 BEACH_SIT_MIN_H_OVER_W = 0.50
 BEACH_SIT_MAX_W_OVER_H = 1.55   # 2.2는 파라솔 캐노피가 통과하기 쉬움
 # 파라솔 색(광안리 빨간·주황 우산이 대부분). OpenCV H: 빨강 0~10/170~180, 주황~갈대 10~25
@@ -177,14 +177,14 @@ BUOY_COLOR_FRAC = 0.22        # 박스 내 부표색 픽셀 비율 ≥ 이면 �
 # 기본 COCO 모델에는 tube 클래스가 없어 자동으로 비활성(이름 기반 판별).
 TUBE_CLASS_NAME = "tube"
 # 색 없는 tube 오탐은 _tube_color_fraction으로 막고, conf는 회수 가능하게
-TUBE_MIN_CONF = float(os.environ.get("VISION_TUBE_MIN_CONF", "0.22"))
+TUBE_MIN_CONF = float(os.environ.get("VISION_TUBE_MIN_CONF", "0.18"))
 TUBE_MIN_W_OVER_H = 0.50
 TUBE_MAX_W_OVER_H = 3.8
 TUBE_DUP_IOU = 0.30
 TUBE_NEAR_PERSON_DIST = 0.12
 TUBE_FOAM_REJECT_FRAC = 0.65  # 튜브 foam은 더 느슨 (흰 파도만)
 # 튜브 색(주황·노랑·파랑·분홍) 픽셀 비율 — 색 없으면 열린 바다 오탐으로 기각
-TUBE_COLOR_FRAC = 0.15
+TUBE_COLOR_FRAC = 0.12
 # 물가 튜브는 박스 중심이 WATER_Y_BOT(0.78)보다 아래(모래쪽)로 살짝 내려옴 → 상한을 넓힘
 TUBE_Y_BOT = float(os.environ.get("VISION_TUBE_Y_BOT", "0.90"))
 # 정확도 맥스 설정
@@ -1097,27 +1097,24 @@ def is_confident_person_box(box, frame_hw=None, frame_bgr=None) -> bool:
         if x2 <= 0 or y2 <= 0 or x1 >= w or y1 >= h:
             return False
         frame_area = float(max(1, h * w))
-        if area / frame_area < PERSON_MIN_AREA_FRAC:
-            return False
         if area / frame_area > PERSON_MAX_AREA_FRAC:
             return False
         if bw > PERSON_MAX_WIDTH_FRAC * w:
             return False
         if _looks_like_safety_buoy(box, frame_hw, frame_bgr):
             return False
-        # 구역 판정은 박스 하단(발이 닿는 쪽)이 아니라 중심 — 허공·열린 바다 오탐 방지
+        # 구역: 중심(cy). 하늘은 금지, 열린 바다는 empty_water로 허공 기각
         cy = _box_cy_frac(box, h)
+        if cy < WATER_Y_TOP:
+            return False
         if WATER_Y_TOP <= cy < WATER_Y_BOT:
             zone = "water"
             if _looks_like_empty_water(box, frame_hw, frame_bgr):
                 return False
-        elif cy >= WATER_Y_BOT:
+        else:
             zone = "beach"
             if _looks_like_parasol(box, frame_hw, frame_bgr):
                 return False
-        else:
-            # ROI 위(하늘·다리): 사람 확정 금지
-            return False
     w_over_h = (bw / bh) if bh > 1e-6 else 99.0
     h_over_w = (bh / bw) if bw > 1e-6 else 99.0
 
