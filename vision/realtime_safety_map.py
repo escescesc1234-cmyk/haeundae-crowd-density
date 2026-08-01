@@ -221,11 +221,13 @@ FAST_CONF = PERSON_PROPOSAL_CONF
 # ── 원근 대응 밴드(고정 카메라: 화면 y = 거리) ──
 # 하늘·다리(상단 WATER_Y_TOP 위)는 크롭해 추론에서 제외(공짜 속도).
 # 물(멀다)=고배율로 먼 수영자 회수↑, 모래(가깝다)=저배율로 낭비↓.
-# (y_top_frac, y_bot_frac, upscale, slice)
+# (y_top_frac, y_bot_frac, upscale, slice[, overlap])
+# overlap A/B(full 1080p): 전역 0.40은 +1명/−+15%시간으로 이득 작음.
+# → 물 밴드만 0.40(작은 수영자·튜브 경계 회수), 모래는 0.22 유지.
 FAST_BANDS = (
-    (WATER_Y_TOP, FAR_WATER_Y, 2.2, 384),  # 먼 바다(부표 띠): 저배율 — 부표 과탐↓
-    (FAR_WATER_Y, WATER_Y_BOT, 2.8, 384),  # 가까운 입수대: 고배율 — 수영자·튜브↑
-    (WATER_Y_BOT, 1.0, 2.0, 384),          # 모래: 서있는 사람 회수↑ (1.4→2.0)
+    (WATER_Y_TOP, FAR_WATER_Y, 2.2, 384, 0.40),  # 먼 바다: overlap↑
+    (FAR_WATER_Y, WATER_Y_BOT, 2.8, 384, 0.40),  # 입수대: overlap↑
+    (WATER_Y_BOT, 1.0, 2.0, 384, 0.22),          # 모래: 기본 overlap
 )
 # PRECISE 물 구역 전담(원거리 수영자 정밀): FAST 물 밴드(2.8x)보다 높은 해상
 PRECISE_WATER_UPSCALE = float(os.environ.get("VISION_PRECISE_WATER_UPSCALE", "3.6"))
@@ -588,25 +590,35 @@ CROWD_MODEL = os.environ.get("VISION_CROWD_MODEL", "DM-Count")  # DM-Count|CSRNe
 # compare_crowd_models.py 실측: SHA=80.8/78.7(모래·파도 텍스처 과탐), QNRF=15.2/18.1(2개 아키텍처 일치).
 # → 기본을 SHA(과탐)에서 QNRF로 교체. (env로 언제든 변경 가능)
 CROWD_WEIGHTS = os.environ.get("VISION_CROWD_WEIGHTS", "QNRF")  # SHA|SHB|QNRF
+# 앙상블: DM-Count/QNRF + Bay/QNRF 평균(단일 모델 편향↓). VISION_CROWD_ENSEMBLE=0 이면 단일.
+CROWD_ENSEMBLE = os.environ.get("VISION_CROWD_ENSEMBLE", "1").strip() not in (
+    "0", "false", ""
+)
+CROWD_ENSEMBLE_MODELS = (("DM-Count", "QNRF"), ("Bay", "QNRF"))
 CROWD_INTERVAL_SEC = float(os.environ.get("VISION_CROWD_INTERVAL", "30"))
 CROWD_ROI_TOP = 0.45   # 상단(하늘·건물) 제외: LIVE_ROI와 동일 비율
 CROWD_MAX_EDGE = int(os.environ.get("VISION_CROWD_MAX_EDGE", "1280"))  # 입력 긴 변 제한(연산 축소)
-# 보정계수: 밀도모델 원시값을 광안리 구도에 맞춰 스케일.
-# 실측 몇 장을 수동으로 세어 (실제/원시) 평균으로 정하면 신뢰도↑. 기본 1.0(무보정).
-CROWD_CALIB = float(os.environ.get("VISION_CROWD_CALIB", "1.0"))
+# 보정계수: 밀도모델 원시 → 광안리 구도 스케일.
+# calibrate_crowd.py --gt: actual≈130 / ens≈42.7 → ≈3.04 (튜브색 하한+육안)
+# 재보정: python calibrate_crowd.py --gt output/calib_samples.csv
+CROWD_CALIB = float(os.environ.get("VISION_CROWD_CALIB", "3.0"))
 # 시간축 평활: 최근 N회 보정값의 중앙값을 headline으로 사용(프레임별 노이즈·순간 과탐↓).
 CROWD_SMOOTH_WINDOW = int(os.environ.get("VISION_CROWD_SMOOTH", "5"))
 _CROWD_HISTORY: deque = deque(maxlen=max(1, CROWD_SMOOTH_WINDOW))
 CROWD_INPUT = None     # 지연 초기화(출력 폴더)
 _CROWD_META_LOCK = threading.Lock()
+_CROWD_MODEL_LABEL = (
+    "ensemble(DM-Count+Bay)/QNRF" if CROWD_ENSEMBLE else f"{CROWD_MODEL}/{CROWD_WEIGHTS}"
+)
 CROWD_META: dict = {
     "enabled": CROWD_ENABLED,
-    "model": f"{CROWD_MODEL}/{CROWD_WEIGHTS}",
+    "model": _CROWD_MODEL_LABEL,
     "state": "idle",   # idle | loading | running | ok | error | disabled
     "count": 0,        # 시간축 평활(중앙값) headline
     "countInstant": 0, # 이번 프레임 보정값
-    "countRaw": 0,     # 모델 원시 출력
+    "countRaw": 0,     # 모델(앙상블) 원시 출력
     "calib": CROWD_CALIB,
+    "ensemble": CROWD_ENSEMBLE,
     "window": 0,       # 평활에 사용된 표본 수
     "inferMs": 0.0,
     "updatedAt": None,
@@ -1582,11 +1594,13 @@ def detect_people_sahi_fast(
     """
     h, w = frame_bgr.shape[:2]
     merged: list = []
-    for (yt, yb, up, sl) in bands:
+    for band in bands:
+        yt, yb, up, sl = band[0], band[1], band[2], band[3]
+        ov = float(band[4]) if len(band) >= 5 else overlap
         merged.extend(
             detect_people_sahi_band(
                 detection_model, frame_bgr, roi_mask,
-                yt, yb, up, sl, overlap,
+                yt, yb, up, sl, ov,
             )
         )
     kept = nms_boxes(merged, iou_thresh=SAHI_NMS_IOU)
@@ -2179,21 +2193,31 @@ def crowd_count_loop(interval_sec: float = CROWD_INTERVAL_SEC):
     CROWD_INPUT.parent.mkdir(parents=True, exist_ok=True)
 
     set_crowd_meta(state="loading")
-    eprint(f"[crowd] 모델 로딩 {CROWD_MODEL}/{CROWD_WEIGHTS} ...")
+    model_specs = (
+        list(CROWD_ENSEMBLE_MODELS)
+        if CROWD_ENSEMBLE
+        else [(CROWD_MODEL, CROWD_WEIGHTS)]
+    )
+    eprint(f"[crowd] 모델 로딩 {_CROWD_MODEL_LABEL} ...")
     try:
         from lwcc import LWCC
 
+        models = []
         with INFER_LOCK:
-            model = LWCC.load_model(
-                model_name=CROWD_MODEL, model_weights=CROWD_WEIGHTS
-            )
+            for name, weights in model_specs:
+                models.append(
+                    (
+                        f"{name}/{weights}",
+                        LWCC.load_model(model_name=name, model_weights=weights),
+                    )
+                )
     except Exception as exc:
         eprint(f"[crowd] 로딩 실패(비활성화): {exc}")
         set_crowd_meta(state="error", lastError=str(exc))
         return
 
     set_crowd_meta(state="idle")
-    eprint("[crowd] ready")
+    eprint(f"[crowd] ready ({len(models)} model(s), calib×{CROWD_CALIB:g})")
 
     while True:
         try:
@@ -2222,7 +2246,12 @@ def crowd_count_loop(interval_sec: float = CROWD_INTERVAL_SEC):
                 from lwcc import LWCC
 
                 t0 = time.perf_counter()
-                raw_count = float(LWCC.get_count(str(CROWD_INPUT), model=model))
+                per_model = []
+                for label, model in models:
+                    per_model.append(
+                        float(LWCC.get_count(str(CROWD_INPUT), model=model))
+                    )
+                raw_count = float(sum(per_model) / len(per_model))
                 infer_ms = (time.perf_counter() - t0) * 1000.0
             wait_ms = (time.perf_counter() - wait0) * 1000.0 - infer_ms
             instant = raw_count * CROWD_CALIB  # 보정계수 적용
@@ -2236,13 +2265,15 @@ def crowd_count_loop(interval_sec: float = CROWD_INTERVAL_SEC):
                 countInstant=round(instant, 1),
                 countRaw=round(raw_count, 1),
                 calib=CROWD_CALIB,
+                ensemble=CROWD_ENSEMBLE,
                 window=len(_CROWD_HISTORY),
                 inferMs=round(infer_ms, 0),
                 updatedAt=datetime.now(timezone.utc).isoformat(),
                 lastError=None,
             )
+            parts = "+".join(f"{c:.1f}" for c in per_model)
             eprint(
-                f"[crowd] {CROWD_MODEL}/{CROWD_WEIGHTS} raw={raw_count:.1f} "
+                f"[crowd] {_CROWD_MODEL_LABEL} raw=[{parts}]→{raw_count:.1f} "
                 f"calib×{CROWD_CALIB:g}={instant:.1f} "
                 f"med{len(_CROWD_HISTORY)}={smoothed:.1f} "
                 f"infer={infer_ms:.0f}ms lockwait={wait_ms:.0f}ms"
@@ -2773,13 +2804,14 @@ def create_app() -> Flask:
           crowdSubEl.textContent = '병행 비활성화';
         } else if (cw.updatedAt) {
           crowdValEl.textContent = Math.round(cw.count ?? 0) + '명';
-          const calibTxt = (cw.calib && cw.calib !== 1)
+          const calibTxt = (cw.calib && Number(cw.calib) !== 1)
             ? ' · ×' + Number(cw.calib).toFixed(2) : '';
           const medTxt = (cw.window > 1)
             ? ' · 중앙값' + cw.window + '회(순간 ' + Math.round(cw.countInstant ?? 0) + ')'
             : '';
+          const ensTxt = cw.ensemble ? ' · 앙상블' : '';
           crowdSubEl.textContent =
-            (cw.model || '밀도추정') + calibTxt + medTxt + ' · ' +
+            (cw.model || '밀도추정') + ensTxt + calibTxt + medTxt + ' · ' +
             Number(cw.inferMs || 0).toFixed(0) + 'ms' +
             (cwState === 'running' ? ' · 재추정 중' : '');
         } else if (cwState === 'running' || cwState === 'loading') {

@@ -40,8 +40,9 @@ DEFAULT_OUT = ROOT / "finetune" / "dataset"
 # 교사(teacher) 프리셋: 오프라인이라 느려도 됨 → 물 고배율·촘촘 슬라이스로 recall↑
 TEACHER_MODEL_CANDIDATES = ("models/yolo26m_beach_ft.pt", "yolo26m.pt", "yolo26s.pt")
 TEACHER_BANDS = (
-    (R.WATER_Y_TOP, R.WATER_Y_BOT, 3.5, 320),  # 물: 먼 수영자 최대 회수
-    (R.WATER_Y_BOT, 1.0, 2.0, 384),            # 모래: 파라솔·앉음
+    # (y0,y1,upscale,slice[,overlap]) — 물은 overlap↑ 로 경계 놓침↓
+    (R.WATER_Y_TOP, R.WATER_Y_BOT, 3.5, 320, 0.40),
+    (R.WATER_Y_BOT, 1.0, 2.0, 384, 0.22),
 )
 
 
