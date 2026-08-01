@@ -222,12 +222,11 @@ FAST_CONF = PERSON_PROPOSAL_CONF
 # 하늘·다리(상단 WATER_Y_TOP 위)는 크롭해 추론에서 제외(공짜 속도).
 # 물(멀다)=고배율로 먼 수영자 회수↑, 모래(가깝다)=저배율로 낭비↓.
 # (y_top_frac, y_bot_frac, upscale, slice[, overlap])
-# overlap A/B(full 1080p): 전역 0.40은 +1명/−+15%시간으로 이득 작음.
-# → 물 밴드만 0.40(작은 수영자·튜브 경계 회수), 모래는 0.22 유지.
+# overlap 0.40 A/B: 확정 person/tube 동일·기각만 +30~40 → 기본 0.22 유지.
 FAST_BANDS = (
-    (WATER_Y_TOP, FAR_WATER_Y, 2.2, 384, 0.40),  # 먼 바다: overlap↑
-    (FAR_WATER_Y, WATER_Y_BOT, 2.8, 384, 0.40),  # 입수대: overlap↑
-    (WATER_Y_BOT, 1.0, 2.0, 384, 0.22),          # 모래: 기본 overlap
+    (WATER_Y_TOP, FAR_WATER_Y, 2.2, 384, 0.22),  # 먼 바다(부표 띠)
+    (FAR_WATER_Y, WATER_Y_BOT, 2.8, 384, 0.22),  # 가까운 입수대
+    (WATER_Y_BOT, 1.0, 2.0, 384, 0.22),          # 모래
 )
 # PRECISE 물 구역 전담(원거리 수영자 정밀): FAST 물 밴드(2.8x)보다 높은 해상
 PRECISE_WATER_UPSCALE = float(os.environ.get("VISION_PRECISE_WATER_UPSCALE", "3.6"))
@@ -590,9 +589,10 @@ CROWD_MODEL = os.environ.get("VISION_CROWD_MODEL", "DM-Count")  # DM-Count|CSRNe
 # compare_crowd_models.py 실측: SHA=80.8/78.7(모래·파도 텍스처 과탐), QNRF=15.2/18.1(2개 아키텍처 일치).
 # → 기본을 SHA(과탐)에서 QNRF로 교체. (env로 언제든 변경 가능)
 CROWD_WEIGHTS = os.environ.get("VISION_CROWD_WEIGHTS", "QNRF")  # SHA|SHB|QNRF
-# 앙상블: DM-Count/QNRF + Bay/QNRF 평균(단일 모델 편향↓). VISION_CROWD_ENSEMBLE=0 이면 단일.
-CROWD_ENSEMBLE = os.environ.get("VISION_CROWD_ENSEMBLE", "1").strip() not in (
-    "0", "false", ""
+# 앙상블: DM-Count+Bay 평균. CPU에선 INFER_LOCK을 오래 잡아 FAST 기각↑·확정↓
+# → 기본 OFF. 필요 시 VISION_CROWD_ENSEMBLE=1.
+CROWD_ENSEMBLE = os.environ.get("VISION_CROWD_ENSEMBLE", "0").strip() in (
+    "1", "true", "yes",
 )
 CROWD_ENSEMBLE_MODELS = (("DM-Count", "QNRF"), ("Bay", "QNRF"))
 CROWD_INTERVAL_SEC = float(os.environ.get("VISION_CROWD_INTERVAL", "30"))
