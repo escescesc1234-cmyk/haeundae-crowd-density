@@ -104,18 +104,24 @@ def make_live_roi_mask(h: int, w: int):
 CELL_W = 40
 CELL_H = 15
 # 사람/비사람: 저확신은 스케일 합의, 고확신은 단독 통과 + 형태필터
-PERSON_PROPOSAL_CONF = 0.08
+# 0.08은 열린 바다·파도에 저확신 제안이 수백 개 → 기각 회색 박스가 UI를 덮음.
+PERSON_PROPOSAL_CONF = float(os.environ.get("VISION_PROPOSAL_CONF", "0.16"))
 # 파인튜닝(yolo26s_beach_ft) 모델은 확신도가 낮게 나오는 경향이 있음.
 # 전역으로 너무 낮추면(0.12~0.16) 먼 바다 안전 부표가 튜브/사람으로 통과함.
 # → 전역은 중간값, 먼 바다(부표 띠)는 별도 엄격 규칙으로 분리.
-PERSON_MIN_CONF = float(os.environ.get("VISION_PERSON_MIN_CONF", "0.20"))
+PERSON_MIN_CONF = float(os.environ.get("VISION_PERSON_MIN_CONF", "0.28"))
 PERSON_HIGH_CONF = 0.35
-PERSON_MIN_BOX_AREA = 12.0
-PERSON_MIN_BOX_H = 6.0
+PERSON_MIN_BOX_AREA = 48.0
+PERSON_MIN_BOX_H = 12.0
+PERSON_MIN_AREA_FRAC = 0.00008  # 프레임 대비 너무 작은 점 노이즈 차단
 PERSON_MAX_ASPECT_W_OVER_H = 1.8  # 우산·파라솔·배(가로형) 강하게 차단 (서있는 사람 기준)
 PERSON_MIN_ASPECT_H_OVER_W = 0.70  # 세로형(사람) 선호 (서있는 사람 기준)
 PERSON_MAX_AREA_FRAC = 0.05
 PERSON_MAX_WIDTH_FRAC = 0.18
+# 기각(회색 X) 박스: 기본 비표시. 디버그 시 VISION_DRAW_REJECTED=1
+DRAW_REJECTED = os.environ.get("VISION_DRAW_REJECTED", "0").strip() in (
+    "1", "true", "yes",
+)
 # ── 구역 인지 필터: 물/모래별 규칙 (파도 오탐↓, 수영자·튜브·파라솔 아래 회수↑) ──
 # 광안리 고정 캠 구도: 세로 0.45~0.78 물, 0.78 아래 모래(파라솔)
 WATER_Y_TOP = float(os.environ.get("VISION_WATER_TOP", "0.45"))
@@ -132,21 +138,21 @@ NEAR_BUOY_MAX_AREA_FRAC = 0.00015
 NEAR_BUOY_MAX_H_FRAC = 0.020
 NEAR_TUBE_MIN_AREA_FRAC = 0.00010  # 사실상 점만 '옆에 사람' 요구
 NEAR_BUOY_COLOR_AREA = 0.00035     # 부표색이 뚜렷할 때만 조금 더 큰 것도 기각
-# 물: 머리·상체만 내민 수영자 = 작은 정사각형~세로형 박스, 확신 완화
-# (입수대 회수: 0.20은 파인튜닝 모델에 다소 높음 → 0.16)
-SWIMMER_MIN_CONF = 0.16
+# 물: 머리·상체만 내민 수영자 = 작은 정사각형~세로형 박스
+# (너무 낮추면 열린 바다 잔물결이 통과 → 0.24)
+SWIMMER_MIN_CONF = 0.24
 SWIMMER_MAX_H_FRAC = 0.055    # 입수대 상반신 조금 더 허용
 SWIMMER_MAX_W_OVER_H = 1.5
-# 물: 튜브·서프보드 위 사람 = 가로형. 0.40은 파도↓이지만 입수대 사람도↓
-# → 중간값. 파도는 foam(색)으로 막는다.
-FLOAT_MIN_CONF = 0.28
+# 물: 튜브·서프보드 위 사람 = 가로형. 파도는 foam(색)으로 막는다.
+FLOAT_MIN_CONF = 0.35
 FLOAT_MAX_W_OVER_H = 2.6
-# 모래: 서 있는 사람 회수↑ / 파라솔(빨간·가로형 캐노피) 기각
-BEACH_STAND_MIN_CONF = float(os.environ.get("VISION_BEACH_STAND_MIN_CONF", "0.12"))
+# 모래: 서 있는 사람 / 파라솔(빨간·가로형 캐노피) 기각
+# 0.12는 점·그림자 오탐↑ → 0.22
+BEACH_STAND_MIN_CONF = float(os.environ.get("VISION_BEACH_STAND_MIN_CONF", "0.22"))
 BEACH_STAND_MAX_W_OVER_H = 1.65   # 서있는 사람: 파라솔(≥1.2 가로)보다 좁은 편
 BEACH_STAND_MIN_H_OVER_W = 0.60
 # 앉음·파라솔 아래 사람: 낮고 넓은 실루엣. 다만 캐노피만큼 넓으면 안 됨.
-BEACH_SIT_MIN_CONF = 0.16
+BEACH_SIT_MIN_CONF = 0.22
 BEACH_SIT_MIN_H_OVER_W = 0.50
 BEACH_SIT_MAX_W_OVER_H = 1.55   # 2.2는 파라솔 캐노피가 통과하기 쉬움
 # 파라솔 색(광안리 빨간·주황 우산이 대부분). OpenCV H: 빨강 0~10/170~180, 주황~갈대 10~25
@@ -1030,24 +1036,30 @@ def is_confident_person_box(box, frame_hw=None, frame_bgr=None) -> bool:
         if x2 <= 0 or y2 <= 0 or x1 >= w or y1 >= h:
             return False
         frame_area = float(max(1, h * w))
+        if area / frame_area < PERSON_MIN_AREA_FRAC:
+            return False
         if area / frame_area > PERSON_MAX_AREA_FRAC:
             return False
         if bw > PERSON_MAX_WIDTH_FRAC * w:
             return False
         if _looks_like_safety_buoy(box, frame_hw, frame_bgr):
             return False
-        y_bot = float(y2) / float(max(1, h))
-        if WATER_Y_TOP <= y_bot < WATER_Y_BOT:
+        # 구역 판정은 박스 하단(발이 닿는 쪽)이 아니라 중심 — 허공·열린 바다 오탐 방지
+        cy = _box_cy_frac(box, h)
+        if WATER_Y_TOP <= cy < WATER_Y_BOT:
             zone = "water"
-        elif y_bot >= WATER_Y_BOT:
+        elif cy >= WATER_Y_BOT:
             zone = "beach"
             if _looks_like_parasol(box, frame_hw, frame_bgr):
                 return False
+        else:
+            # ROI 위(하늘·다리): 사람 확정 금지
+            return False
     w_over_h = (bw / bh) if bh > 1e-6 else 99.0
     h_over_w = (bh / bw) if bw > 1e-6 else 99.0
 
     if zone == "beach":
-        # 해변 서있는 사람: 전역보다 낮은 확신, 세로형, 파라솔 폭 제한
+        # 해변 서있는 사람: 세로형, 파라솔 폭 제한
         if (
             score >= BEACH_STAND_MIN_CONF
             and w_over_h <= BEACH_STAND_MAX_W_OVER_H
@@ -1063,7 +1075,7 @@ def is_confident_person_box(box, frame_hw=None, frame_bgr=None) -> bool:
             return True
         return False
 
-    # 먼 바다: 전역보다 높은 확신 요구 (부표 오탐 억제)
+    # 먼 바다: 전역보다 높은 확신 요구 (부표·허공 오탐 억제)
     need = FAR_PERSON_MIN_CONF if _in_far_water(box, frame_hw) else PERSON_MIN_CONF
 
     # 표준 규칙: 서있는 사람 (물·기타)
@@ -1646,20 +1658,23 @@ def draw_yolo_boxes(
         )
         cv2.polylines(out, [pts], True, (0, 255, 255), 1, cv2.LINE_AA)
 
-    for r in rejected or []:
-        x1, y1, x2, y2, conf = r[0], r[1], r[2], r[3], r[4]
-        p1, p2 = (int(x1), int(y1)), (int(x2), int(y2))
-        cv2.rectangle(out, p1, p2, (140, 140, 140), 2)
-        cv2.putText(
-            out,
-            f"X {conf:.2f}",
-            (p1[0], max(14, p1[1] - 4)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.4,
-            (180, 180, 180),
-            1,
-            cv2.LINE_AA,
-        )
+    # 기각 후보는 기본 비표시(열린 바다에 회색 X 수백 개가 UI를 덮음).
+    # VISION_DRAW_REJECTED=1 일 때만 그림. 개수는 상단 텍스트에 항상 표기.
+    if DRAW_REJECTED:
+        for r in rejected or []:
+            x1, y1, x2, y2, conf = r[0], r[1], r[2], r[3], r[4]
+            p1, p2 = (int(x1), int(y1)), (int(x2), int(y2))
+            cv2.rectangle(out, p1, p2, (140, 140, 140), 2)
+            cv2.putText(
+                out,
+                f"X {conf:.2f}",
+                (p1[0], max(14, p1[1] - 4)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.4,
+                (180, 180, 180),
+                1,
+                cv2.LINE_AA,
+            )
 
     tube_n = 0
     for b in boxes:
