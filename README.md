@@ -197,3 +197,38 @@ npm run vision:analyze -- vision/input/screenshots/01_wide_full_beach.png
 
 열지도 등 산출물: `http://localhost:3780/vision-output/...`  
 상세: `vision/README.md`
+
+### 상시 배포 (노트북 OFF)
+
+Docker Compose로 VPS에 올리면 노트북을 꺼도 API·AI가 유지됩니다.  
+절차: [`docs/DEPLOY.md`](docs/DEPLOY.md) · 환경변수 예시: [`.env.deploy.example`](.env.deploy.example)
+
+```bash
+# 서버에서
+cp .env.deploy.example .env   # YOUR_SERVER_IP 수정
+# vision/models/yolo26s_beach_ft.pt 업로드 후
+docker compose up -d --build
+```
+
+### 실시간 AI 모델 (타 앱 연동)
+
+파인튜닝 가중치 `vision/models/yolo26s_beach_ft.pt` 를 Flask(8790)가 로드하고,  
+Express(3780)가 상태·모델 메타를 프록시한다. 다른 작업자 앱은 **밀도 서버 baseUrl만** 두면 된다.
+
+```bash
+npm run dev                 # :3780
+npm run vision:realtime     # :8790 (별도 터미널)
+curl http://localhost:3780/api/vision/realtime
+curl http://localhost:3780/api/vision/realtime/model
+curl http://localhost:3780/api/vision/realtime/status
+```
+
+| 용도 | URL |
+|------|-----|
+| 계약·스트림 URL | `GET /api/vision/realtime` |
+| 탐지 수치 JSON | `GET /api/vision/realtime/status` |
+| 가중치 메타 | `GET /api/vision/realtime/model` |
+| MJPEG 안전지도 | `http://127.0.0.1:8790/stream` |
+
+브라우저 타 오리진: `CORS_ORIGINS=*` (기본). 클라이언트: `getRealtimeVision()` / `getRealtimeVisionStatus()`.  
+복붙 프롬프트: [`docs/INTEGRATION-PROMPT.md`](docs/INTEGRATION-PROMPT.md) 섹션 E.

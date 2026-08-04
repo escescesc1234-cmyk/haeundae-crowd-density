@@ -1,0 +1,15 @@
+__pycache__
+*.py[cod]
+.venv
+venv
+finetune/raw
+finetune/dataset
+finetune/review
+finetune/*.zip
+output
+runs
+datasets
+*.pt
+*.pth
+*.zip
+*.log

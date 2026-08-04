@@ -19,7 +19,7 @@ if (Test-Running 'realtime_safety_map.py') {
     Write-Host "[server] already running"
 } else {
     Start-Process -FilePath $py `
-        -ArgumentList "realtime_safety_map.py", "--port", "8790", "--detector", "sahi" `
+        -ArgumentList "realtime_safety_map.py", "--port", "8790", "--detector", "light" `
         -WorkingDirectory $here `
         -RedirectStandardOutput "realtime_safety_map.run.log" `
         -RedirectStandardError "realtime_safety_map.err.log" `
@@ -28,9 +28,10 @@ if (Test-Running 'realtime_safety_map.py') {
     Start-Sleep -Seconds 12
 }
 
-# 2) frame collector (every 60s)
+# 2) frame collector (보조). 주 수집은 서버 내장 VISION_COLLECT_RAW=1.
+#    서버가 이미 떠 있으면 내장 수집만으로도 충분. 보조 수집기는 서버 다운 복구용.
 if (Test-Running 'collect_finetune_frames.py') {
-    Write-Host "[collect] already running"
+    Write-Host "[collect] external collector already running (backup)"
 } else {
     Start-Process -FilePath $py `
         -ArgumentList "collect_finetune_frames.py", "--every", "60" `
@@ -38,7 +39,7 @@ if (Test-Running 'collect_finetune_frames.py') {
         -RedirectStandardOutput "collect_frames.out.log" `
         -RedirectStandardError "collect_frames.err.log" `
         -WindowStyle Hidden
-    Write-Host "[collect] started -> saving to finetune/raw/"
+    Write-Host "[collect] external backup started -> finetune/raw/ (primary=server built-in)"
 }
 
 # 3) auto-box watcher (light YOLO, fast; boxes every collected frame)

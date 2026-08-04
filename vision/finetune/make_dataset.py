@@ -43,9 +43,15 @@ def main():
     n_val = max(1, int(len(pairs) * args.val))
     splits = {"val": pairs[:n_val], "train": pairs[n_val:]}
 
+    # 이전 split 잔존 파일이 zip/학습에 섞이지 않도록 비운 뒤 복사
+    for split in ("train", "val"):
+        for sub in ("images", "labels"):
+            d = root / split / sub
+            if d.exists():
+                shutil.rmtree(d)
+            d.mkdir(parents=True, exist_ok=True)
+
     for split, items in splits.items():
-        (root / split / "images").mkdir(parents=True, exist_ok=True)
-        (root / split / "labels").mkdir(parents=True, exist_ok=True)
         for im, lb in items:
             shutil.copy2(im, root / split / "images" / im.name)
             shutil.copy2(lb, root / split / "labels" / lb.name)

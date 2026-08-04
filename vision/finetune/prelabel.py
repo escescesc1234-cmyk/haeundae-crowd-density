@@ -37,11 +37,12 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SRC = ROOT / "finetune" / "raw"
 DEFAULT_OUT = ROOT / "finetune" / "dataset"
 
-# 교사(teacher) 프리셋: 오프라인이라 느려도 됨 → 물 고배율·촘촘 슬라이스로 recall↑
+# 교사(teacher) 프리셋: 오프라인이라 느려도 됨 → 원거리(먼 바다) 고배율로 recall↑
 TEACHER_MODEL_CANDIDATES = ("models/yolo26m_beach_ft.pt", "yolo26m.pt", "yolo26s.pt")
 TEACHER_BANDS = (
-    (R.WATER_Y_TOP, R.WATER_Y_BOT, 3.5, 320, 0.22),
-    (R.WATER_Y_BOT, 1.0, 2.0, 384, 0.22),
+    (R.WATER_Y_TOP, R.FAR_WATER_Y, 4.0, 288, 0.30),  # 먼 바다: 작은 수영자
+    (R.FAR_WATER_Y, R.WATER_Y_BOT, 3.5, 320, 0.22),  # 입수대
+    (R.WATER_Y_BOT, 1.0, 2.0, 384, 0.22),            # 모래
 )
 
 
@@ -96,7 +97,7 @@ def make_light_detector(yolo_model, upscale: float = 1.0, imgsz: int = 1920):
     작은 사람을 훨씬 잘 잡는다(실측 7→20명).
     """
     def _detect(img, roi_mask):
-        _c, confirmed = R.detect_people_fast(
+        _c, confirmed, _rej = R.detect_people_fast(
             yolo_model, img, roi_mask, upscale=upscale, imgsz=imgsz
         )
         return confirmed

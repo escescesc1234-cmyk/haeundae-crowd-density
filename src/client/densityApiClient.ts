@@ -11,6 +11,7 @@ import {
   type DensityHealthResponse,
   type ManualAnalyzeRequest,
   type TouristZoneView,
+  type RealtimeVisionMeta,
   type VisionAnalyzeRequest,
   type VisionAnalyzeResponse,
   visionOutputUrl,
@@ -120,6 +121,30 @@ export class DensityApiClient {
         calibrationPath: body.calibrationPath,
         useHomographyArea: body.useHomographyArea,
       },
+    });
+  }
+
+  /** 실시간 AI 비전 URL·모델 계약 (스트림은 meta.streamUrl 직접 사용) */
+  async getRealtimeVision(): Promise<RealtimeVisionMeta> {
+    return this.requestJson<RealtimeVisionMeta>("/api/vision/realtime", {
+      method: "GET",
+      timeoutMs: this.defaultTimeoutMs,
+    });
+  }
+
+  /** 실시간 상태 프록시 (:8790/api/status). 비전 서버 미기동 시 502 */
+  async getRealtimeVisionStatus(): Promise<unknown> {
+    return this.requestJson("/api/vision/realtime/status", {
+      method: "GET",
+      timeoutMs: this.defaultTimeoutMs,
+    });
+  }
+
+  /** 로드된 YOLO 가중치 메타 프록시 */
+  async getRealtimeVisionModel(): Promise<unknown> {
+    return this.requestJson("/api/vision/realtime/model", {
+      method: "GET",
+      timeoutMs: this.defaultTimeoutMs,
     });
   }
 

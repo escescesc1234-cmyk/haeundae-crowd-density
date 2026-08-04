@@ -1,0 +1,47 @@
+# Safe Flow — 노트북 OFF 후에도 클라우드/VPS에서 상시 기동
+#
+# 사전: vision/models/yolo26s_beach_ft.pt 존재 확인
+# 로컬 시험: docker compose up -d --build
+# 배포: docs/DEPLOY.md 참고
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${API_PUBLISH_PORT:-3780}:3780"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3780"
+      CORS_ORIGINS: "${CORS_ORIGINS:-*}"
+      DENSITY_API_BASE_URL: "${DENSITY_API_BASE_URL:-http://localhost:3780}"
+      # 컨테이너 간 프록시
+      REALTIME_SAFETY_URL: "http://vision:8790"
+      # 브라우저용 공개 URL (VPS면 http://서버IP:8790 또는 도메인)
+      REALTIME_SAFETY_PUBLIC_URL: "${REALTIME_SAFETY_PUBLIC_URL:-http://localhost:8790}"
+      KMA_SERVICE_KEY: "${KMA_SERVICE_KEY:-}"
+      SK_OPEN_API_APP_KEY: "${SK_OPEN_API_APP_KEY:-}"
+    volumes:
+      - vision-output:/app/vision/output
+    depends_on:
+      - vision
+    restart: unless-stopped
+
+  vision:
+    build:
+      context: ./vision
+      dockerfile: Dockerfile
+    ports:
+      - "${VISION_PUBLISH_PORT:-8790}:8790"
+    environment:
+      CORS_ORIGINS: "${CORS_ORIGINS:-*}"
+      VISION_SAHI256: "${VISION_SAHI256:-1}"
+    volumes:
+      # 파인튜닝 가중치 (호스트 → 컨테이너). 없으면 기동은 되나 정확도↓
+      - ./vision/models:/app/models:ro
+      - vision-output:/app/output
+    restart: unless-stopped
+
+volumes:
+  vision-output:

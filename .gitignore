@@ -7,6 +7,7 @@ config/threshold-changes.json
 .env
 .env.*
 !.env.example
+!.env.deploy.example
 
 # Python / vision
 __pycache__/

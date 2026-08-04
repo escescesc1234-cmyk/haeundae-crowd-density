@@ -129,6 +129,27 @@
       });
     }
 
+    getRealtimeVision() {
+      return this._request("/api/vision/realtime", {
+        method: "GET",
+        timeoutMs: this.defaultTimeoutMs,
+      });
+    }
+
+    getRealtimeVisionStatus() {
+      return this._request("/api/vision/realtime/status", {
+        method: "GET",
+        timeoutMs: this.defaultTimeoutMs,
+      });
+    }
+
+    getRealtimeVisionModel() {
+      return this._request("/api/vision/realtime/model", {
+        method: "GET",
+        timeoutMs: this.defaultTimeoutMs,
+      });
+    }
+
     getWaveguardDashboard(params) {
       params = params || {};
       const q = new URLSearchParams();

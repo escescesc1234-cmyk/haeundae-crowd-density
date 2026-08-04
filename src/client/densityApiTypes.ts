@@ -106,6 +106,28 @@ export interface VisionAnalyzeResponse {
   error?: string;
 }
 
+/** GET /api/vision/realtime — 실시간 AI 비전 URL·계약 */
+export interface RealtimeVisionMeta {
+  ok: boolean;
+  service: string;
+  modelWeight?: string;
+  uiUrl: string;
+  streamUrl: string;
+  streamYoloUrl?: string;
+  streamSahi256Url?: string;
+  statusUrl: string;
+  modelInfoUrl?: string;
+  proxiedStatusPath?: string;
+  proxiedModelInfoPath?: string;
+  howToStart?: string;
+  grid?: Record<string, unknown>;
+  alerts?: {
+    tourist: string;
+    manager: string;
+  };
+  [key: string]: unknown;
+}
+
 export interface DensityClientOptions {
   /** 예: http://localhost:3780 — 비우면 상대 경로(동일 오리진) */
   baseUrl?: string;

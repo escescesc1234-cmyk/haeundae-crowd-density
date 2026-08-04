@@ -17,9 +17,95 @@ import { sharedParkingAdapter } from "../adapters/parkingAdapter.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const publicDir = join(__dirname, "..", "..", "public");
 
+/** 서버→비전 프록시용 (Docker 내부망: http://vision:8790) */
+function realtimeSafetyInternalBase(): string {
+  return (
+    process.env.REALTIME_SAFETY_URL?.replace(/\/$/, "") ??
+    "http://127.0.0.1:8790"
+  );
+}
+
+/** 브라우저에 내려줄 공개 URL (배포 시 REALTIME_SAFETY_PUBLIC_URL) */
+function realtimeSafetyPublicBase(): string {
+  return (
+    process.env.REALTIME_SAFETY_PUBLIC_URL?.replace(/\/$/, "") ??
+    realtimeSafetyInternalBase()
+  );
+}
+
+/** 타 앱(다른 포트/오리진) 브라우저 연동용 CORS. CORS_ORIGINS=* 또는 쉼표 목록 */
+function applyCors(
+  req: express.Request,
+  res: express.Response,
+): void {
+  const raw = (process.env.CORS_ORIGINS ?? "*").trim();
+  const origin = req.headers.origin;
+  if (raw === "*") {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+  } else if (origin && raw.split(",").map((s) => s.trim()).includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+  }
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+  );
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization",
+  );
+}
+
+async function proxyRealtimeJson(
+  path: string,
+  timeoutMs = 8_000,
+): Promise<{ ok: true; data: unknown } | { ok: false; error: string; status: number }> {
+  const url = `${realtimeSafetyInternalBase()}${path.startsWith("/") ? path : `/${path}`}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    const text = await res.text();
+    let data: unknown = null;
+    if (text) {
+      try {
+        data = JSON.parse(text) as unknown;
+      } catch {
+        data = text;
+      }
+    }
+    if (!res.ok) {
+      return {
+        ok: false,
+        status: res.status,
+        error: `실시간 비전 서비스 오류 (HTTP ${res.status})`,
+      };
+    }
+    return { ok: true, data };
+  } catch (err) {
+    const msg =
+      err instanceof Error && err.name === "AbortError"
+        ? `실시간 비전 서비스 타임아웃 (${timeoutMs}ms)`
+        : `실시간 비전 서비스 연결 실패: ${
+            err instanceof Error ? err.message : String(err)
+          }`;
+    return { ok: false, status: 502, error: msg };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function createApp() {
   const app = express();
   app.use(express.json({ limit: "1mb" }));
+  app.use((req, res, next) => {
+    applyCors(req, res);
+    if (req.method === "OPTIONS") {
+      res.status(204).end();
+      return;
+    }
+    next();
+  });
   app.use(express.static(publicDir));
 
   app.get("/api/health", (_req, res) => {
@@ -37,11 +123,14 @@ export function createApp() {
       /\/$/,
       "",
     );
+    const realtime = realtimeSafetyPublicBase();
     res.json({
       densityApiBaseUrl: configured,
       defaultZoneId: "GWANGALLI-ZONE-CENTER",
       port: Number(process.env.PORT ?? 3780),
-      note: "동일 오리진 UI는 상대 경로로 API를 호출해도 됩니다.",
+      realtimeSafetyUrl: realtime,
+      visionModelWeight: "vision/models/yolo26s_beach_ft.pt",
+      note: "동일 오리진 UI는 상대 경로로 API를 호출해도 됩니다. 타 앱은 DENSITY_API_BASE_URL + CORS 사용.",
     });
   });
 
@@ -196,17 +285,22 @@ export function createApp() {
     express.static(join(__dirname, "..", "..", "vision", "output")),
   );
 
-  /** 실시간 안전지도 스트림 메타 (Python :8790 에서 제공) */
+  /** 실시간 AI 비전 메타 (Python :8790). 타 앱은 이 엔드포인트로 URL·모델 계약을 받는다. */
   app.get("/api/vision/realtime", (_req, res) => {
-    const base =
-      process.env.REALTIME_SAFETY_URL?.replace(/\/$/, "") ??
-      "http://127.0.0.1:8790";
+    const base = realtimeSafetyPublicBase();
     res.json({
       ok: true,
       service: "realtime-safety-map",
+      modelWeight: "vision/models/yolo26s_beach_ft.pt",
       uiUrl: `${base}/`,
       streamUrl: `${base}/stream`,
+      streamYoloUrl: `${base}/stream/yolo`,
+      streamSahi256Url: `${base}/stream/sahi256`,
       statusUrl: `${base}/api/status`,
+      modelInfoUrl: `${base}/api/model-info`,
+      /** 동일 오리진 프록시 (타 앱은 baseUrl=3780 만으로도 상태/모델 조회 가능) */
+      proxiedStatusPath: "/api/vision/realtime/status",
+      proxiedModelInfoPath: "/api/vision/realtime/model",
       defaultSource: "https://www.youtube.com/watch?v=jmVmZlsQIL8",
       howToStart: "npm run vision:realtime",
       grid: {
@@ -225,6 +319,35 @@ export function createApp() {
           "경고: 위험 구역이 발생했습니다. 즉시 현장 점검 및 안전 조치를 시행하세요.",
       },
     });
+  });
+
+  /** 실시간 비전 상태 프록시 → :8790/api/status */
+  app.get("/api/vision/realtime/status", async (_req, res) => {
+    const result = await proxyRealtimeJson("/api/status");
+    if (!result.ok) {
+      res.status(result.status).json({
+        ok: false,
+        error: result.error,
+        howToStart: "npm run vision:realtime",
+      });
+      return;
+    }
+    res.json(result.data);
+  });
+
+  /** 로드된 YOLO 가중치 메타 프록시 → :8790/api/model-info */
+  app.get("/api/vision/realtime/model", async (_req, res) => {
+    const result = await proxyRealtimeJson("/api/model-info");
+    if (!result.ok) {
+      res.status(result.status).json({
+        ok: false,
+        error: result.error,
+        modelWeight: "vision/models/yolo26s_beach_ft.pt",
+        howToStart: "npm run vision:realtime",
+      });
+      return;
+    }
+    res.json(result.data);
   });
 
   app.get("/api/results", (_req, res) => {

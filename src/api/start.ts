@@ -4,10 +4,12 @@ import { createApp } from "./server.js";
 loadEnvFile();
 
 const port = Number(process.env.PORT ?? 3780);
+/** Docker/VPS에서 외부 접속 가능하도록 기본 0.0.0.0 */
+const host = process.env.HOST ?? "0.0.0.0";
 const app = createApp();
 
-app.listen(port, () => {
-  console.log(`광안리 밀집도 분석 서버: http://localhost:${port}`);
+app.listen(port, host, () => {
+  console.log(`Safe Flow 밀도 서버: http://${host}:${port}`);
   console.log(`관광객 화면: http://localhost:${port}/tourist.html`);
   console.log(`관리자 화면: http://localhost:${port}/admin.html`);
   console.log(

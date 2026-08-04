@@ -61,9 +61,10 @@ export type {
   DensityClientOptions,
   DensityHealthResponse,
   ManualAnalyzeRequest,
+  RealtimeVisionMeta,
   TouristZoneView,
   VisionAnalyzeMeta,
-  VisionAnalyzeRequest,
+  VisionAnalyzeRequest as DensityApiVisionAnalyzeRequest,
   VisionAnalyzeResponse,
   VisionSafetyAlerts as DensityApiVisionAlerts,
 } from "./client/densityApiTypes.js";

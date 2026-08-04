@@ -12,6 +12,9 @@
     "vision:analyze": "tsx src/cliVision.ts",
     "vision:realtime": "tsx src/cliRealtimeSafety.ts",
     "vision:finetune": "cd vision && python finetune_beach_max.py",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f --tail=100",
     "test": "vitest run",
     "test:watch": "vitest"
   },

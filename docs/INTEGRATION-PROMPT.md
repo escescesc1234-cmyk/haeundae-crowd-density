@@ -89,25 +89,48 @@ POST /api/analyze/vision
 ## D. 대시보드(선택)
 GET /api/waveguard/dashboard
 
+## E. 실시간 AI 모델 (YOLO 파인튜닝 가중치, 3차)
+밀도 서버(3780) + 실시간 비전(8790)이 떠 있어야 한다.
+기동: 밀도 `npm run dev` / 비전 `npm run vision:realtime`
+가중치: vision/models/yolo26s_beach_ft.pt (person / tube)
+
+메타·계약 (3780만으로 충분):
+GET /api/vision/realtime
+→ uiUrl, streamUrl, statusUrl, modelInfoUrl, proxiedStatusPath, proxiedModelInfoPath, alerts
+
+상태·모델 (3780 프록시 — 타 앱 baseUrl 하나만 쓰면 됨):
+GET /api/vision/realtime/status   → personCount, tubeCount, estimatedTotal, maxGridDensityPerM2 …
+GET /api/vision/realtime/model    → 로드된 가중치 경로·클래스
+
+MJPEG 스트림은 브라우저 <img> / video 소스로 직접:
+- http://127.0.0.1:8790/stream          (안전지도 격자)
+- http://127.0.0.1:8790/stream/yolo     (FAST 박스)
+- http://127.0.0.1:8790/stream/sahi256  (리콜 모니터)
+
+DensityApiClient 메서드: getRealtimeVision(), getRealtimeVisionStatus(), getRealtimeVisionModel()
+CORS: 밀도·비전 서버 모두 기본 CORS_ORIGINS=* (다른 포트 앱에서 fetch/img 가능)
+
 # 현재 프로젝트 정보 (채워넣기)
 - 프로젝트 종류: [예: React Native / Next.js / Flutter / Express]
 - UI 대상: [관광객 | 관리자 | 둘 다]
 - 이 프로젝트가 이미 쓰는 API base URL 패턴: [예: process.env.API_URL]
-- 연동 우선순위: [1차 manual / 2차 vision]
+- 연동 우선순위: [1차 manual / 2차 vision / 3차 realtime AI]
 - 밀도 서비스 주소: [기본 http://localhost:3780 또는 배포 URL]
 
 # 구현 요구사항
 1. `DensityApiClient` (또는 동등한 모듈) 생성
    - baseUrl 설정 가능
-   - health(), analyzeManual(), getTouristZones(), analyzeVision() 메서드
+   - health(), analyzeManual(), getTouristZones(), analyzeVision()
+   - (3차) getRealtimeVision(), getRealtimeVisionStatus()
 2. 환경변수 추가
    - DENSITY_API_BASE_URL=http://localhost:3780
 3. UI 연동
    - 관광객 화면: riskLevel + touristMessage(alerts.hasDanger 시) + 안전지도 이미지(있으면)
    - 관리자 화면: riskLevel + density + managerMessage + 안전지도/열지도
+   - (3차) 실시간: streamUrl을 img src로, status의 estimatedTotal/위험 격자 표시
 4. 실패 처리
    - 서비스 다운 시 사용자에게 "밀도 분석 서비스 연결 실패" 표시
-   - 타임아웃 권장: manual 10s, vision 180s
+   - 타임아웃 권장: manual 10s, vision 180s, realtime status 8s
 5. 타입을 현재 스택에 맞게 정의하되, 필드명은 위 계약과 동일하게 유지
 6. README에 "해운대 밀도 서비스 연동" 섹션 추가 (실행 순서 포함)
 
@@ -120,6 +143,9 @@ GET /api/waveguard/dashboard
 2. analyzeManual 샘플 호출 성공 확인
 3. 현재 프로젝트 UI에서 결과가 보이는지 확인
 4. (선택) analyzeVision 호출 후 alerts + safety map URL 표시 확인
+5. (3차 AI) npm run vision:realtime 후
+   curl http://localhost:3780/api/vision/realtime/model
+   curl http://localhost:3780/api/vision/realtime/status
 
 # 금지
 - 밀도/위험등급 공식을 추측해서 재구현하지 말 것
@@ -145,12 +171,14 @@ npm run dev
 # http://localhost:3780
 ```
 
-비전 분석까지 쓰려면:
+비전 분석·실시간 AI까지 쓰려면:
 
 ```bash
 cd vision
 pip install -r requirements.txt
 # 프로젝트 루트 .env 에 VISION_PYTHON=... 설정
+# 가중치: vision/models/yolo26s_beach_ft.pt 존재 확인
+npm run vision:realtime   # http://127.0.0.1:8790
 ```
 
 ---
@@ -185,6 +213,12 @@ const vision = await fetch(`${BASE}/api/analyze/vision`, {
 const safetyMapUrl = vision.vision?.safetyMapRelativePath
   ? `${BASE}/vision-output/${vision.vision.safetyMapRelativePath.replace(/^vision\/output\//, "")}`
   : null;
+
+// 3) 실시간 AI 모델 (3780 프록시 + 8790 스트림)
+const rt = await fetch(`${BASE}/api/vision/realtime`).then((r) => r.json());
+const status = await fetch(`${BASE}/api/vision/realtime/status`).then((r) => r.json());
+// <img src={rt.streamUrl} />  // MJPEG 안전지도
+// status.estimatedTotal, status.personCount, status.maxGridDensityPerM2
 ```
 
 안전지도 URL 규칙:  
@@ -199,5 +233,7 @@ const safetyMapUrl = vision.vision?.safetyMapRelativePath
 현재 프로젝트를 http://localhost:3780 의 haeundae-crowd-density 서비스와 HTTP 연동해줘.
 POST /api/analyze/manual 로 구역 GWANGALLI-ZONE-CENTER 분석 결과를 관광객/관리자 UI에 표시하고,
 가능하면 POST /api/analyze/vision 의 alerts(touristMessage/managerMessage)와
-/vision-output/... 안전지도 이미지도 연결해. 밀도 엔진은 재구현하지 말고 API만 소비해.
+/vision-output/... 안전지도 이미지도 연결해.
+실시간 AI가 필요하면 GET /api/vision/realtime 의 streamUrl·
+GET /api/vision/realtime/status 를 쓰고, 밀도 엔진은 재구현하지 말고 API만 소비해.
 ```
