@@ -13,6 +13,30 @@
 - 관광객 UI에 「밀도 API · 구역 현황」 패널 추가 금지.
 
 ════════════════════════════════════════════════════════
+0. 최우선 — Safe Flow 저장소 git pull (절대 건너뛰지 말 것)
+════════════════════════════════════════════════════════
+연동·기동·문서 읽기 전에, 이 PC의 haeundae-crowd-density 를 최신으로 맞춰라.
+오래된 clone이면 /api/vision/realtime/monitor 가 없어 실시간 모니터가 실패한다.
+
+직접 터미널에서 실행:
+
+# 이미 clone 되어 있으면 (경로를 찾아라: 홈, Projects, Desktop 등)
+cd <haeundae-crowd-density 경로>
+git fetch origin
+git checkout main
+git pull origin main
+git log -1 --oneline
+# → 최신에 feat: 실시간 monitor / SAFE-FLOW-MONITOR 관련 커밋이 보여야 함
+
+# clone 자체가 없으면
+git clone https://github.com/escescesc1234-cmyk/haeundae-crowd-density.git
+cd haeundae-crowd-density
+git pull origin main
+
+pull 실패(권한/네트워크)면 사용자에게 알리고 중단하지 말고 재시도·안내.
+pull 완료 전에는 앱 연동 코드를 작성하지 마라.
+
+════════════════════════════════════════════════════════
 A. 반드시 이해할 것 (실패 원인 대부분이 여기)
 ════════════════════════════════════════════════════════
 1) localhost는 "그 Cursor가 돌아가는 PC" 안에서만 통한다.
@@ -34,10 +58,9 @@ A. 반드시 이해할 것 (실패 원인 대부분이 여기)
 ════════════════════════════════════════════════════════
 B. 이 PC에서 Safe Flow 서버 기동 (직접 실행·검증)
 ════════════════════════════════════════════════════════
-# 1) clone (없으면)
-git clone https://github.com/escescesc1234-cmyk/haeundae-crowd-density.git
-cd haeundae-crowd-density
-git pull
+# 0단계에서 이미 cd + git pull 완료된 상태여야 함
+cd <haeundae-crowd-density 경로>
+git pull origin main
 npm install
 copy .env.example .env
 # DENSITY_API_BASE_URL=http://localhost:3780
@@ -200,6 +223,7 @@ F. 완료 기준 (직접 검증 후 한국어로 보고)
 [ ] 서비스 다운 시 "밀도 분석 서비스 연결 실패" + 기동 안내
 [ ] 수정 파일 목록과 사용법 보고
 
-지금 바로 B(서버 기동·curl 검증)부터 수행하고, 이어서 D~E로 현재 앱 UI를 구현하라.
+지금 바로 0단계(git pull origin main)부터 수행하고, 이어서 B→D→E 순으로 구현하라.
 막히면 추측하지 말고 curl 응답 JSON을 읽고 원인을 고친 뒤 계속하라.
+pull을 안 한 채 옛 API만 보고 "엔드포인트 없음"이라고 단정하지 마라.
 ```

@@ -19,9 +19,17 @@ API 경로·필드명 변경 금지. .env 실키 커밋 금지.
 - 복사 클라이언트: examples/safe-flow-client/safe-flow-realtime.js
 - 문서: docs/SAFE-FLOW-REALTIME.md
 
-# 1) 이 PC에서 서버 기동 (안 떠 있으면 실행·재시도)
+# 0) 최우선 — git pull (절대 건너뛰지 말 것)
+# 이미 clone 있으면:
+cd <haeundae-crowd-density 경로>
+git fetch origin && git checkout main && git pull origin main
+# 없으면:
 git clone https://github.com/escescesc1234-cmyk/haeundae-crowd-density.git
-cd haeundae-crowd-density && npm install
+cd haeundae-crowd-density && git pull origin main
+# pull 전에는 연동 코드 작성 금지 (/api/vision/realtime/monitor 등 최신 API 필요)
+
+# 1) 이 PC에서 서버 기동 (안 떠 있으면 실행·재시도)
+npm install
 copy .env.example .env
 npm run dev
 # 실시간 AI (필수 for 스트림)
@@ -29,7 +37,7 @@ npm run vision:realtime
 # 권장: vision/models/yolo26s_beach_ft.pt (Drive로 별도 전달)
 
 검증: curl http://localhost:3780/api/health
-     curl http://localhost:3780/api/vision/realtime/status
+     curl http://localhost:3780/api/vision/realtime/monitor
 
 # 2) 실시간 구현 (필수)
 GET /api/vision/realtime

@@ -11,18 +11,19 @@ Safe Flow SAHI 실시간 영상을 9:16·잘림 없이 표시하도록 수정하
 
 # Safe Flow
 baseUrl = process.env.DENSITY_API_BASE_URL ?? "http://localhost:3780"
-서버(이 PC): haeundae-crowd-density 에서
+
+# 0) 최우선 — 서버 저장소 git pull (건너뛰면 옛 API로 실패함)
+cd <haeundae-crowd-density 경로>
+git pull origin main
+# 없으면: git clone https://github.com/escescesc1234-cmyk/haeundae-crowd-density.git && cd haeundae-crowd-density && git pull origin main
+
+서버(이 PC): pull 후
   npm run dev
   npm run vision:realtime   # VISION_SAHI256=1 기본, SAHI-256 실시간
 
-GET /api/vision/realtime
-→ streamUrl              = SAHI-256 MJPEG (기본, 이걸 사용)
-→ streamSahi256Url       = 동일
-→ streamSafetyMapUrl     = 격자 안전지도(보조)
+GET /api/vision/realtime/monitor   ← 권장(2초 폴링)
+→ streamUrl (= /stream/sahi256), monitoring.sahiPersonCount, estimatedTotal, phase, partialOk
 → display: { aspectRatio:"9:16", objectFit:"contain" }
-
-GET /api/vision/realtime/status (2초 폴링)
-→ personCount, estimatedTotal, sahi256.personCount, alerts
 
 # 표시 규칙 (필수)
 1. 스트림 src = meta.streamUrl (또는 streamSahi256Url). 안전지도(/stream)로 바꾸지 말 것.
