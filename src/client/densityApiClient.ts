@@ -13,6 +13,7 @@ import {
   type TouristZoneView,
   type RealtimeVisionMeta,
   type RealtimeVisionModelInfo,
+  type RealtimeVisionMonitor,
   type RealtimeVisionStatus,
   type VisionAnalyzeRequest,
   type VisionAnalyzeResponse,
@@ -156,12 +157,23 @@ export class DensityApiClient {
     );
   }
 
+  /** 타 앱 권장: 스트림 URL + 모니터링 숫자를 한 번에 */
+  async getRealtimeMonitor(): Promise<RealtimeVisionMonitor> {
+    return this.requestJson<RealtimeVisionMonitor>(
+      "/api/vision/realtime/monitor",
+      {
+        method: "GET",
+        timeoutMs: 12_000,
+      },
+    );
+  }
+
   /**
-   * 실시간 status 폴링. 다른 앱 UI에서 setInterval 대신 사용.
+   * 실시간 모니터링 폴링 (monitor 엔드포인트).
    * @returns stop() 호출로 중지
    */
   startRealtimePolling(
-    onUpdate: (status: RealtimeVisionStatus) => void,
+    onUpdate: (monitor: RealtimeVisionMonitor) => void,
     options?: {
       intervalMs?: number;
       onError?: (err: DensityApiError) => void;
@@ -174,8 +186,8 @@ export class DensityApiClient {
     const tick = async () => {
       if (stopped) return;
       try {
-        const status = await this.getRealtimeVisionStatus();
-        if (!stopped) onUpdate(status);
+        const monitor = await this.getRealtimeMonitor();
+        if (!stopped) onUpdate(monitor);
       } catch (err) {
         if (!stopped && options?.onError) {
           options.onError(

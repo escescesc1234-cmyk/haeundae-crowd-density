@@ -112,14 +112,22 @@ export interface RealtimeVisionMeta {
   service: string;
   modelWeight?: string;
   uiUrl: string;
+  /** 기본 = SAHI-256 실시간 MJPEG */
   streamUrl: string;
   streamYoloUrl?: string;
   streamSahi256Url?: string;
+  streamSafetyMapUrl?: string;
+  preferredStream?: "sahi256" | "safety_map" | "yolo" | string;
   statusUrl: string;
   modelInfoUrl?: string;
   proxiedStatusPath?: string;
   proxiedModelInfoPath?: string;
   howToStart?: string;
+  display?: {
+    aspectRatio?: string;
+    objectFit?: string;
+    note?: string;
+  };
   grid?: Record<string, unknown>;
   alerts?: {
     tourist: string;
@@ -164,6 +172,49 @@ export interface RealtimeVisionModelInfo {
   sizeMB?: number;
   modifiedAt?: string;
   classes?: Record<string, string>;
+  [key: string]: unknown;
+}
+
+/** GET /api/vision/realtime/monitor — 타 앱 실시간 모니터링용 요약 */
+export interface RealtimeVisionMonitor {
+  ok: boolean;
+  live: boolean;
+  phase?: string;
+  partialOk?: boolean;
+  disclaimer?: string;
+  streamUrl: string;
+  streamSahi256Url?: string;
+  streamSafetyMapUrl?: string;
+  streamYoloUrl?: string;
+  pollIntervalMs?: number;
+  display?: {
+    aspectRatio?: string;
+    objectFit?: string;
+    note?: string;
+  };
+  monitoring: {
+    estimatedTotal: number;
+    fastPersonCount: number;
+    sahiPersonCount: number;
+    tubeCount: number;
+    maxGridDensityPerM2: number;
+    sahiState: string;
+    sahiEnabled: boolean;
+    sahiInferMs?: number;
+    sahiUpdatedAt?: string | null;
+    fastUpdatedAt?: string | null;
+    pipeline?: string | null;
+    detector?: string | null;
+    source?: string;
+  } | null;
+  alerts?: {
+    hasDanger: boolean;
+    dangerCellCount: number;
+    touristMessage: string | null;
+    managerMessage: string | null;
+  };
+  error?: string;
+  howToStart?: string | string[];
   [key: string]: unknown;
 }
 

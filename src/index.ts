@@ -63,6 +63,7 @@ export type {
   ManualAnalyzeRequest,
   RealtimeVisionMeta,
   RealtimeVisionModelInfo,
+  RealtimeVisionMonitor,
   RealtimeVisionStatus,
   TouristZoneView,
   VisionAnalyzeMeta,

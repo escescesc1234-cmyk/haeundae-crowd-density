@@ -293,16 +293,28 @@ export function createApp() {
       service: "realtime-safety-map",
       modelWeight: "vision/models/yolo26s_beach_ft.pt",
       uiUrl: `${base}/`,
-      streamUrl: `${base}/stream`,
-      streamYoloUrl: `${base}/stream/yolo`,
+      /** 앱 기본 스트림 = SAHI-256 실시간 (잘림 없이 9:16 contain 권장) */
+      streamUrl: `${base}/stream/sahi256`,
       streamSahi256Url: `${base}/stream/sahi256`,
+      streamSafetyMapUrl: `${base}/stream`,
+      streamYoloUrl: `${base}/stream/yolo`,
+      preferredStream: "sahi256",
       statusUrl: `${base}/api/status`,
       modelInfoUrl: `${base}/api/model-info`,
       /** 동일 오리진 프록시 (타 앱은 baseUrl=3780 만으로도 상태/모델 조회 가능) */
       proxiedStatusPath: "/api/vision/realtime/status",
       proxiedModelInfoPath: "/api/vision/realtime/model",
+      /** 타 앱 권장: 숫자+스트림 계약을 한 번에 */
+      monitorPath: "/api/vision/realtime/monitor",
       defaultSource: "https://www.youtube.com/watch?v=jmVmZlsQIL8",
       howToStart: "npm run vision:realtime",
+      partialOk: true,
+      pollIntervalMs: 2000,
+      display: {
+        aspectRatio: "9:16",
+        objectFit: "contain",
+        note: "잘림 금지 — object-fit:contain + 레터박스 허용",
+      },
       grid: {
         cellW: 40,
         cellH: 15,
@@ -348,6 +360,107 @@ export function createApp() {
       return;
     }
     res.json(result.data);
+  });
+
+  /**
+   * 타 앱 실시간 모니터링 전용 (한 번에 숫자+스트림 계약).
+   * 부분 탐지(일부만 인식)도 정상 — partialOk=true, 숫자는 있는 그대로 표시.
+   */
+  app.get("/api/vision/realtime/monitor", async (_req, res) => {
+    const base = realtimeSafetyPublicBase();
+    const result = await proxyRealtimeJson("/api/status", 12_000);
+    if (!result.ok) {
+      res.status(result.status).json({
+        ok: false,
+        live: false,
+        error: result.error,
+        howToStart: [
+          "cd haeundae-crowd-density",
+          "npm run dev",
+          "npm run vision:realtime",
+        ],
+        streamUrl: `${base}/stream/sahi256`,
+        display: {
+          aspectRatio: "9:16",
+          objectFit: "contain",
+          note: "잘림 금지 — contain + 레터박스 허용",
+        },
+        monitoring: null,
+      });
+      return;
+    }
+
+    const st = (result.data ?? {}) as Record<string, unknown>;
+    const sahi = (st.sahi256 ?? {}) as Record<string, unknown>;
+    const est = (st.estimatedTotal ?? {}) as Record<string, unknown>;
+    const alerts = (st.alerts ?? {}) as Record<string, unknown>;
+    const sahiState = String(sahi.state ?? "unknown");
+    const sahiEnabled = sahi.enabled !== false;
+    const fastPerson = Number(st.personCount ?? 0) || 0;
+    const sahiPerson = Number(sahi.personCount ?? 0) || 0;
+    const tubeCount = Number(st.tubeCount ?? 0) || 0;
+    const estCount =
+      typeof est.count === "number"
+        ? est.count
+        : Math.max(fastPerson + tubeCount, sahiPerson);
+
+    const phase =
+      !sahiEnabled
+        ? "sahi_disabled"
+        : sahiState === "ok" || sahiState === "running"
+          ? "live"
+          : sahiState === "loading" || sahiState === "idle"
+            ? "warming"
+            : sahiState === "error"
+              ? "error"
+              : "live";
+
+    res.json({
+      ok: true,
+      live: phase === "live" || fastPerson > 0 || sahiPerson > 0,
+      phase,
+      partialOk: true,
+      disclaimer:
+        "부분 탐지(화면 일부만 인식)도 정상입니다. 숫자는 참고용이며 전수 인원을 보장하지 않습니다.",
+      streamUrl: `${base}/stream/sahi256`,
+      streamSahi256Url: `${base}/stream/sahi256`,
+      streamSafetyMapUrl: `${base}/stream`,
+      streamYoloUrl: `${base}/stream/yolo`,
+      pollIntervalMs: 2000,
+      display: {
+        aspectRatio: "9:16",
+        objectFit: "contain",
+        note: "잘림 금지 — object-fit:contain + 레터박스 허용",
+      },
+      monitoring: {
+        estimatedTotal: estCount,
+        fastPersonCount: fastPerson,
+        sahiPersonCount: sahiPerson,
+        tubeCount,
+        maxGridDensityPerM2: Number(st.maxGridDensityPerM2 ?? 0) || 0,
+        sahiState,
+        sahiEnabled,
+        sahiInferMs: Number(sahi.inferMs ?? 0) || 0,
+        sahiUpdatedAt: sahi.updatedAt ?? null,
+        fastUpdatedAt: st.updatedAt ?? null,
+        pipeline: st.pipeline ?? null,
+        detector: st.detector ?? null,
+        source: typeof est.source === "string" ? est.source : "detection",
+      },
+      alerts: {
+        hasDanger: Boolean(alerts.hasDanger),
+        dangerCellCount: Number(alerts.dangerCellCount ?? 0) || 0,
+        touristMessage:
+          typeof alerts.touristMessage === "string"
+            ? alerts.touristMessage
+            : null,
+        managerMessage:
+          typeof alerts.managerMessage === "string"
+            ? alerts.managerMessage
+            : null,
+      },
+      howToStart: "npm run vision:realtime",
+    });
   });
 
   app.get("/api/results", (_req, res) => {

@@ -30,16 +30,28 @@ function resolvePython(): string {
 
 const python = resolvePython();
 const extraArgs = process.argv.slice(2);
-const args = [SCRIPT, ...extraArgs];
+/** 기본: hybrid FAST(both) + SAHI256 실시간 스트림. 사용자가 --detector 주면 그대로 사용 */
+const hasDetectorFlag = extraArgs.some(
+  (a, i) => a === "--detector" || (i > 0 && extraArgs[i - 1] === "--detector"),
+);
+const args = hasDetectorFlag
+  ? [SCRIPT, ...extraArgs]
+  : [SCRIPT, "--detector", "both", ...extraArgs];
 
 console.log(`[vision:realtime] ${python} ${args.join(" ")}`);
 console.log(`[vision:realtime] UI: http://127.0.0.1:8790/`);
-console.log(`[vision:realtime] MJPEG: http://127.0.0.1:8790/stream`);
+console.log(`[vision:realtime] SAHI MJPEG: http://127.0.0.1:8790/stream/sahi256`);
+console.log(`[vision:realtime] 안전지도: http://127.0.0.1:8790/stream`);
 
 const child = spawn(python, args, {
   cwd: join(ROOT, "vision"),
   stdio: "inherit",
-  env: { ...process.env, PYTHONIOENCODING: "utf-8" },
+  env: {
+    ...process.env,
+    PYTHONIOENCODING: "utf-8",
+    // 기본 SAHI-256 실시간 ON (명시적 0만 끔)
+    VISION_SAHI256: process.env.VISION_SAHI256 ?? "1",
+  },
   windowsHide: true,
 });
 

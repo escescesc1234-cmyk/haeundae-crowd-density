@@ -327,8 +327,8 @@ FAST_BANDS = (
     (WATER_Y_BOT, 1.0, 2.8, 384, 0.22),          # 모래: 서있는 사람
 )
 # ── 256×256 SAHI 비교 모니터 (FAST가 이미 SAHI면 기본 OFF — 중복 추론 방지) ──
-# 비교용으로 켜기: VISION_SAHI256=1  (+ --detector light 일 때 유용)
-SAHI256_ENABLED = os.environ.get("VISION_SAHI256", "0").strip() not in (
+# Safe Flow 기본 ON: SAHI-256 실시간 모니터 (/stream/sahi256). 끄기: VISION_SAHI256=0
+SAHI256_ENABLED = os.environ.get("VISION_SAHI256", "1").strip() not in (
     "0", "false", "",
 )
 SAHI256_UPSCALE = float(os.environ.get("VISION_SAHI256_UPSCALE", "2.0"))

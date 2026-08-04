@@ -54,7 +54,7 @@ npm run vision:realtime  # http://127.0.0.1:8790 (실시간 AI, 별도 터미널
 - `POST /api/analyze/manual` — `{ zoneId, detectedPeople, measuredAt, notify? }`
 - `GET /api/results`, `/api/tourist/zones`, `/api/admin/zones`, `/api/tourist/beach`
 - `POST /api/analyze/vision` — 응답: `analysis`, `alerts`, `vision`
-- `GET /api/vision/realtime` · `/api/vision/realtime/status` · `/api/vision/realtime/model`
+- `GET /api/vision/realtime` · `/status` · `/model` · **`/monitor`**(타앱 권장, 부분탐지 OK)
 - `GET /api/waveguard/dashboard` — UI 대시보드
 - 안전지도 URL: `vision/output/safety_map/foo.jpg` → `http://localhost:3780/vision-output/safety_map/foo.jpg`
 - 실시간 MJPEG: `GET /api/vision/realtime` → `streamUrl` (`<img src>`)

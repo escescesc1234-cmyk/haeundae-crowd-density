@@ -150,7 +150,14 @@
       });
     }
 
-    /** 실시간 status 폴링. 반환: { stop() } */
+    getRealtimeMonitor() {
+      return this._request("/api/vision/realtime/monitor", {
+        method: "GET",
+        timeoutMs: 12000,
+      });
+    }
+
+    /** 실시간 monitor 폴링. 반환: { stop() } */
     startRealtimePolling(onUpdate, options) {
       options = options || {};
       const intervalMs = options.intervalMs ?? 2000;
@@ -160,9 +167,9 @@
       const tick = function () {
         if (stopped) return;
         self
-          .getRealtimeVisionStatus()
-          .then(function (status) {
-            if (!stopped && typeof onUpdate === "function") onUpdate(status);
+          .getRealtimeMonitor()
+          .then(function (monitor) {
+            if (!stopped && typeof onUpdate === "function") onUpdate(monitor);
           })
           .catch(function (err) {
             if (!stopped && typeof options.onError === "function") {

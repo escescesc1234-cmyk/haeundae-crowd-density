@@ -18,7 +18,14 @@
 | GET | `/api/vision/realtime` | streamUrl·계약 JSON |
 | GET | `/api/vision/realtime/status` | 탐지 수치 (2초 폴링) |
 | GET | `/api/vision/realtime/model` | 로드된 YOLO 메타 |
-| — | `meta.streamUrl` (보통 `:8790/stream`) | MJPEG `<img src>` |
+| GET | `/api/vision/realtime/monitor` | **타 앱 권장** 스트림+숫자 요약 (2초 폴링) |
+| — | `meta.streamUrl` (= `/stream/sahi256`) | **SAHI-256** MJPEG `<img src>` |
+| — | `meta.streamSafetyMapUrl` (`/stream`) | 격자 안전지도 (보조) |
+
+`monitor.partialOk=true` — 화면 일부만 인식되어도 정상. `phase=warming`은 실패가 아님.
+
+표시: **9:16**, `object-fit: contain` (잘림 금지, 레터박스 허용).  
+기동 시 `VISION_SAHI256=1` 기본.
 
 ## status 핵심 필드
 

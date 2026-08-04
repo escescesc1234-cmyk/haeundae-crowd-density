@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Safe Flow · 실시간 AI</title>
+  <title>Safe Flow · 실시간 모니터</title>
   <link rel="stylesheet" href="/waveguard.css" />
   <script src="/density-api-client.js"></script>
   <style>
@@ -23,12 +23,23 @@
     }
     .rt-stat b { display: block; font-size: 1.4rem; color: #1f6fe5; }
     .rt-stat span { font-size: .75rem; color: #666; }
-    .rt-stream {
-      width: 100%;
+    .sf-video-9x16 {
+      position: relative;
+      width: min(100%, 420px);
+      margin: 0 auto;
+      aspect-ratio: 9 / 16;
+      overflow: hidden;
       border-radius: 12px;
       background: #111;
-      min-height: 200px;
+    }
+    .sf-video-9x16__media {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
       object-fit: contain;
+      display: block;
+      background: #111;
     }
     .rt-msg { margin: 10px 0; padding: 10px 12px; border-radius: 10px; font-size: .9rem; }
     .rt-msg.ok { background: #e8f7ee; color: #146c2e; }
@@ -48,25 +59,25 @@
       <a class="gear" href="/">홈</a>
     </header>
     <div class="rt-wrap">
-      <h2 style="margin:0 0 4px">실시간 AI 안전지도</h2>
-      <p style="margin:0;color:#666;font-size:.9rem">다른 앱 연동 참고용 데모 · 2초마다 status 폴링</p>
+      <h2 style="margin:0 0 4px">실시간 AI 모니터</h2>
+      <p style="margin:0;color:#666;font-size:.9rem">
+        SAHI-256 · 9:16 contain · 부분 탐지 OK · /api/vision/realtime/monitor
+      </p>
       <div id="banner" class="rt-msg warn">연결 확인 중…</div>
       <div class="rt-stats">
         <div class="rt-stat"><b id="est">-</b><span>추정 인원</span></div>
-        <div class="rt-stat"><b id="person">-</b><span>탐지 person</span></div>
-        <div class="rt-stat"><b id="dens">-</b><span>최대 명/㎡</span></div>
+        <div class="rt-stat"><b id="sahi">-</b><span>SAHI person</span></div>
+        <div class="rt-stat"><b id="fast">-</b><span>FAST person</span></div>
       </div>
-      <img id="stream" class="rt-stream" alt="실시간 스트림" />
+      <div class="sf-video-9x16">
+        <img id="stream" class="sf-video-9x16__media" alt="SAHI realtime" />
+      </div>
       <p id="alert" class="rt-msg" style="display:none"></p>
       <div class="rt-actions">
         <a href="/admin.html">관리자</a>
         <a href="/tourist.html">관광객</a>
         <button type="button" id="btnReload">새로고침</button>
       </div>
-      <p style="font-size:.75rem;color:#888;margin-top:16px">
-        API: GET /api/vision/realtime · /status · MJPEG streamUrl<br />
-        기동: npm run dev + npm run vision:realtime
-      </p>
     </div>
   </div>
   <script>
@@ -75,55 +86,63 @@
     const stream = document.getElementById("stream");
     const alertEl = document.getElementById("alert");
     let poll = null;
+    let lastStream = "";
 
     function setBanner(cls, text) {
       banner.className = "rt-msg " + cls;
       banner.textContent = text;
     }
 
-    function applyStatus(st) {
-      const est = st.estimatedTotal || {};
-      document.getElementById("est").textContent = est.count ?? "-";
-      document.getElementById("person").textContent = st.personCount ?? "-";
-      document.getElementById("dens").textContent =
-        st.maxGridDensityPerM2 != null
-          ? Number(st.maxGridDensityPerM2).toFixed(2)
-          : "-";
-      const a = st.alerts || {};
-      if (a.hasDanger && (a.touristMessage || a.managerMessage)) {
+    function applyMonitor(m) {
+      if (!m || m.ok === false) {
+        setBanner("err", (m && m.error) || "모니터 실패 — vision:realtime 확인");
+        return;
+      }
+      const mon = m.monitoring || {};
+      document.getElementById("est").textContent = mon.estimatedTotal ?? "-";
+      document.getElementById("sahi").textContent = mon.sahiPersonCount ?? "-";
+      document.getElementById("fast").textContent = mon.fastPersonCount ?? "-";
+
+      const url = m.streamUrl || m.streamSahi256Url || "";
+      if (url && url !== lastStream) {
+        lastStream = url;
+        stream.src = url + (url.includes("?") ? "&" : "?") + "t=" + Date.now();
+      }
+
+      const a = m.alerts || {};
+      if (a.hasDanger && (a.managerMessage || a.touristMessage)) {
         alertEl.style.display = "block";
         alertEl.className = "rt-msg err";
         alertEl.textContent = a.managerMessage || a.touristMessage;
       } else {
         alertEl.style.display = "none";
       }
-      setBanner("ok", "실시간 연결됨 · " + (st.updatedAt || st.pipeline || "ok"));
-    }
 
-    async function boot() {
-      try {
-        await client.health();
-        const meta = await client.getRealtimeVision();
-        if (meta.streamUrl) {
-          stream.src = meta.streamUrl + "?t=" + Date.now();
-        }
-        if (poll) poll.stop();
-        poll = client.startRealtimePolling(applyStatus, {
-          intervalMs: 2000,
-          onError: function (err) {
-            setBanner(
-              "err",
-              (err && err.message) ||
-                "실시간 비전 연결 실패 — npm run vision:realtime 실행 여부 확인",
-            );
-          },
-        });
-      } catch (e) {
+      if (m.phase === "warming") {
+        setBanner("warn", "SAHI 워밍업 중… 부분 탐지여도 숫자 표시 (" + (mon.sahiState || "") + ")");
+      } else if (m.phase === "error") {
+        setBanner("err", "SAHI 오류 — FAST 숫자는 계속 표시");
+      } else {
         setBanner(
-          "err",
-          (e && e.message) || "밀도 분석 서비스 연결 실패",
+          "ok",
+          "실시간 모니터 · phase=" + (m.phase || "live") +
+            " · 부분탐지 OK · dens=" + Number(mon.maxGridDensityPerM2 || 0).toFixed(2),
         );
       }
+    }
+
+    function boot() {
+      if (poll) poll.stop();
+      poll = client.startRealtimePolling(applyMonitor, {
+        intervalMs: 2000,
+        onError: function (err) {
+          setBanner(
+            "err",
+            (err && err.message) ||
+              "밀도 분석 서비스 연결 실패 — npm run dev + npm run vision:realtime",
+          );
+        },
+      });
     }
 
     document.getElementById("btnReload").onclick = boot;

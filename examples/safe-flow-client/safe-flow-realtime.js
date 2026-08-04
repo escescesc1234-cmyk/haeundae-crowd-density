@@ -5,8 +5,9 @@
  *   <script src="./safe-flow-realtime.js"></script>
  *   const sf = SafeFlowRealtime.create({ baseUrl: "http://localhost:3780" });
  *   const meta = await sf.getMeta();
- *   img.src = meta.streamUrl;
- *   const { stop } = sf.pollStatus((st) => console.log(st.estimatedTotal));
+ *   img.src = meta.streamUrl; // SAHI-256 실시간
+ *   // 9:16 + object-fit:contain (잘림 금지)
+ *   const { stop } = sf.pollStatus((st) => console.log(st.estimatedTotal, st.sahi256));
  *
  * 서버 기동(그 PC):
  *   npm run dev && npm run vision:realtime
@@ -62,6 +63,9 @@
       getMeta: () => requestJson(baseUrl, "/api/vision/realtime", 10000),
       getStatus: () =>
         requestJson(baseUrl, "/api/vision/realtime/status", 8000),
+      /** 권장: 스트림+숫자를 한 번에 (부분 탐지 OK) */
+      getMonitor: () =>
+        requestJson(baseUrl, "/api/vision/realtime/monitor", 12000),
       getModel: () =>
         requestJson(baseUrl, "/api/vision/realtime/model", 8000),
       analyzeManual: (body) =>
@@ -88,7 +92,7 @@
         const tick = function () {
           if (stopped) return;
           self
-            .getStatus()
+            .getMonitor()
             .then(function (st) {
               if (!stopped) onUpdate(st);
             })
