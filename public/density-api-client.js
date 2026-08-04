@@ -150,6 +150,38 @@
       });
     }
 
+    /** 실시간 status 폴링. 반환: { stop() } */
+    startRealtimePolling(onUpdate, options) {
+      options = options || {};
+      const intervalMs = options.intervalMs ?? 2000;
+      let stopped = false;
+      let timer = null;
+      const self = this;
+      const tick = function () {
+        if (stopped) return;
+        self
+          .getRealtimeVisionStatus()
+          .then(function (status) {
+            if (!stopped && typeof onUpdate === "function") onUpdate(status);
+          })
+          .catch(function (err) {
+            if (!stopped && typeof options.onError === "function") {
+              options.onError(err);
+            }
+          })
+          .then(function () {
+            if (!stopped) timer = setTimeout(tick, intervalMs);
+          });
+      };
+      tick();
+      return {
+        stop: function () {
+          stopped = true;
+          if (timer) clearTimeout(timer);
+        },
+      };
+    }
+
     getWaveguardDashboard(params) {
       params = params || {};
       const q = new URLSearchParams();

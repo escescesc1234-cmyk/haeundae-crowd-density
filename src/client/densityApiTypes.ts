@@ -128,6 +128,45 @@ export interface RealtimeVisionMeta {
   [key: string]: unknown;
 }
 
+/** GET /api/vision/realtime/status — Flask /api/status 프록시 (핵심 필드) */
+export interface RealtimeVisionStatus {
+  status?: string;
+  updatedAt?: string | null;
+  personCount?: number;
+  tubeCount?: number;
+  maxGridDensityPerM2?: number;
+  yoloInferMs?: number;
+  yoloBoxCount?: number;
+  rejectedCount?: number;
+  detector?: string;
+  pipeline?: string;
+  estimatedTotal?: {
+    count: number;
+    detection: number;
+    density: number;
+    source: string;
+  };
+  alerts?: {
+    hasDanger?: boolean;
+    dangerCellCount?: number;
+    touristMessage?: string | null;
+    managerMessage?: string | null;
+  };
+  sahi256?: Record<string, unknown>;
+  crowd?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/** GET /api/vision/realtime/model */
+export interface RealtimeVisionModelInfo {
+  path?: string;
+  isLocalFile?: boolean;
+  sizeMB?: number;
+  modifiedAt?: string;
+  classes?: Record<string, string>;
+  [key: string]: unknown;
+}
+
 export interface DensityClientOptions {
   /** 예: http://localhost:3780 — 비우면 상대 경로(동일 오리진) */
   baseUrl?: string;

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Safe Flow · 실시간 AI</title>
+  <link rel="stylesheet" href="/waveguard.css" />
+  <script src="/density-api-client.js"></script>
+  <style>
+    .rt-wrap { padding: 16px; max-width: 720px; margin: 0 auto; }
+    .rt-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin: 12px 0;
+    }
+    .rt-stat {
+      background: #fff;
+      border-radius: 12px;
+      padding: 12px;
+      text-align: center;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    }
+    .rt-stat b { display: block; font-size: 1.4rem; color: #1f6fe5; }
+    .rt-stat span { font-size: .75rem; color: #666; }
+    .rt-stream {
+      width: 100%;
+      border-radius: 12px;
+      background: #111;
+      min-height: 200px;
+      object-fit: contain;
+    }
+    .rt-msg { margin: 10px 0; padding: 10px 12px; border-radius: 10px; font-size: .9rem; }
+    .rt-msg.ok { background: #e8f7ee; color: #146c2e; }
+    .rt-msg.warn { background: #fff4e5; color: #9a5b00; }
+    .rt-msg.err { background: #fdecea; color: #b42318; }
+    .rt-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .rt-actions a, .rt-actions button {
+      background: #1f6fe5; color: #fff; border: 0; border-radius: 10px;
+      padding: 10px 14px; text-decoration: none; font-size: .9rem; cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <span class="logo">Safe Flow</span>
+      <a class="gear" href="/">홈</a>
+    </header>
+    <div class="rt-wrap">
+      <h2 style="margin:0 0 4px">실시간 AI 안전지도</h2>
+      <p style="margin:0;color:#666;font-size:.9rem">다른 앱 연동 참고용 데모 · 2초마다 status 폴링</p>
+      <div id="banner" class="rt-msg warn">연결 확인 중…</div>
+      <div class="rt-stats">
+        <div class="rt-stat"><b id="est">-</b><span>추정 인원</span></div>
+        <div class="rt-stat"><b id="person">-</b><span>탐지 person</span></div>
+        <div class="rt-stat"><b id="dens">-</b><span>최대 명/㎡</span></div>
+      </div>
+      <img id="stream" class="rt-stream" alt="실시간 스트림" />
+      <p id="alert" class="rt-msg" style="display:none"></p>
+      <div class="rt-actions">
+        <a href="/admin.html">관리자</a>
+        <a href="/tourist.html">관광객</a>
+        <button type="button" id="btnReload">새로고침</button>
+      </div>
+      <p style="font-size:.75rem;color:#888;margin-top:16px">
+        API: GET /api/vision/realtime · /status · MJPEG streamUrl<br />
+        기동: npm run dev + npm run vision:realtime
+      </p>
+    </div>
+  </div>
+  <script>
+    const client = window.DensityApi.create({ baseUrl: "" });
+    const banner = document.getElementById("banner");
+    const stream = document.getElementById("stream");
+    const alertEl = document.getElementById("alert");
+    let poll = null;
+
+    function setBanner(cls, text) {
+      banner.className = "rt-msg " + cls;
+      banner.textContent = text;
+    }
+
+    function applyStatus(st) {
+      const est = st.estimatedTotal || {};
+      document.getElementById("est").textContent = est.count ?? "-";
+      document.getElementById("person").textContent = st.personCount ?? "-";
+      document.getElementById("dens").textContent =
+        st.maxGridDensityPerM2 != null
+          ? Number(st.maxGridDensityPerM2).toFixed(2)
+          : "-";
+      const a = st.alerts || {};
+      if (a.hasDanger && (a.touristMessage || a.managerMessage)) {
+        alertEl.style.display = "block";
+        alertEl.className = "rt-msg err";
+        alertEl.textContent = a.managerMessage || a.touristMessage;
+      } else {
+        alertEl.style.display = "none";
+      }
+      setBanner("ok", "실시간 연결됨 · " + (st.updatedAt || st.pipeline || "ok"));
+    }
+
+    async function boot() {
+      try {
+        await client.health();
+        const meta = await client.getRealtimeVision();
+        if (meta.streamUrl) {
+          stream.src = meta.streamUrl + "?t=" + Date.now();
+        }
+        if (poll) poll.stop();
+        poll = client.startRealtimePolling(applyStatus, {
+          intervalMs: 2000,
+          onError: function (err) {
+            setBanner(
+              "err",
+              (err && err.message) ||
+                "실시간 비전 연결 실패 — npm run vision:realtime 실행 여부 확인",
+            );
+          },
+        });
+      } catch (e) {
+        setBanner(
+          "err",
+          (e && e.message) || "밀도 분석 서비스 연결 실패",
+        );
+      }
+    }
+
+    document.getElementById("btnReload").onclick = boot;
+    boot();
+  </script>
+</body>
+</html>

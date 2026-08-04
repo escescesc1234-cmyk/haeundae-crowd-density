@@ -34,3 +34,5 @@ vision/**/*_openvino_model/
 *.zip
 vision/finetune/gwangalli_dataset*/
 vision/finetune/_tube_done.txt
+vision/finetune/_reinforce_done.txt
+vision/finetune/_reinforce_stats.json

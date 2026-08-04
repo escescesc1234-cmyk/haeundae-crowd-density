@@ -5,12 +5,12 @@ alwaysApply: true
 
 # 역할
 
-시니어 풀스택 엔지니어로 이 저장소(`haeundae-crowd-density` / WaveGuard)를 유지·확장한다.
+시니어 풀스택 엔지니어로 이 저장소(`haeundae-crowd-density` / **Safe Flow** / WaveGuard)를 유지·확장한다.
 할루시네이션 없이, 실제 코드·API·설정을 확인한 뒤 답하고 수정한다.
 
 # 프로젝트 한 줄 요약
 
-광안리(기본 구역 `GWANGALLI-ZONE-CENTER`) 해수욕장 **군중 밀도·위험 등급** 분석 서버 + 관광객/관리자 모바일 UI.
+광안리(기본 구역 `GWANGALLI-ZONE-CENTER`) 해수욕장 **군중 밀도·위험 등급·실시간 AI** 분석 서버 + 관광객/관리자 모바일 UI.
 밀도·등급은 현장 참고용이며, AI가 사고를 확정하거나 구조·통제를 단독 결정하지 않는다.
 
 # 실행
@@ -19,11 +19,13 @@ alwaysApply: true
 npm install
 copy .env.example .env   # 키는 .env에만 (커밋 금지)
 npm run dev              # http://localhost:3780
+npm run vision:realtime  # http://127.0.0.1:8790 (실시간 AI, 별도 터미널)
 ```
 
 - 관광객: `/tourist.html`
 - 관리자: `/admin.html`
 - 운영 도구: `/admin-ops.html`
+- 실시간 데모: `/realtime.html`
 - 헬스: `GET /api/health` → `{ ok: true, service: "haeundae-crowd-density" }`
 
 # 핵심 금지
@@ -43,20 +45,24 @@ npm run dev              # http://localhost:3780
 | 관광객/관리자 UI | `public/tourist.html`, `public/admin.html`, `public/waveguard-shared.js`, `public/waveguard.css` |
 | 구역 설정 | `config/zones.gwangalli.json` (현재 **중앙 1구역**) |
 | 비전 YOLO+SAHI | `vision/`, `POST /api/analyze/vision`, 정적 `/vision-output/...` |
-| 문서 | `README.md`, `ALGORITHM.md`, `docs/INITIAL-ALGORITHM-FLOW.md`, `docs/INTEGRATION-PROMPT.md` |
+| 실시간 AI | `npm run vision:realtime`, `GET /api/vision/realtime*` , `/realtime.html` |
+| 타앱 예제 | `examples/safe-flow-client/` |
+| 문서 | `docs/README.md`, `docs/SAFE-FLOW-REALTIME.md`, `docs/SAFE-FLOW-OTHER-CURSOR-PROMPT.md` |
 
 # API 계약 (변경 금지)
 
 - `POST /api/analyze/manual` — `{ zoneId, detectedPeople, measuredAt, notify? }`
 - `GET /api/results`, `/api/tourist/zones`, `/api/admin/zones`, `/api/tourist/beach`
 - `POST /api/analyze/vision` — 응답: `analysis`, `alerts`, `vision`
+- `GET /api/vision/realtime` · `/api/vision/realtime/status` · `/api/vision/realtime/model`
 - `GET /api/waveguard/dashboard` — UI 대시보드
 - 안전지도 URL: `vision/output/safety_map/foo.jpg` → `http://localhost:3780/vision-output/safety_map/foo.jpg`
+- 실시간 MJPEG: `GET /api/vision/realtime` → `streamUrl` (`<img src>`)
 - 비전 위험 격자 고정 문구(변경 금지):
   - 관광객: `주의하세요! 혼잡 지역이 있습니다. 안전 거리를 유지해 주세요.`
   - 관리자: `경고: 위험 구역이 발생했습니다. 즉시 현장 점검 및 안전 조치를 시행하세요.`
-- 타임아웃 권장: manual 10s, vision 180s
-- env: `DENSITY_API_BASE_URL=http://localhost:3780`, `PORT=3780`
+- 타임아웃 권장: manual 10s, vision 180s, realtime status 8s
+- env: `DENSITY_API_BASE_URL=http://localhost:3780`, `PORT=3780`, `REALTIME_SAFETY_PUBLIC_URL`
 
 # UI 규칙
 

@@ -62,6 +62,8 @@ export type {
   DensityHealthResponse,
   ManualAnalyzeRequest,
   RealtimeVisionMeta,
+  RealtimeVisionModelInfo,
+  RealtimeVisionStatus,
   TouristZoneView,
   VisionAnalyzeMeta,
   VisionAnalyzeRequest as DensityApiVisionAnalyzeRequest,

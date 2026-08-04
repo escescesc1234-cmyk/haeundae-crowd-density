@@ -12,6 +12,8 @@ import {
   type ManualAnalyzeRequest,
   type TouristZoneView,
   type RealtimeVisionMeta,
+  type RealtimeVisionModelInfo,
+  type RealtimeVisionStatus,
   type VisionAnalyzeRequest,
   type VisionAnalyzeResponse,
   visionOutputUrl,
@@ -133,19 +135,69 @@ export class DensityApiClient {
   }
 
   /** 실시간 상태 프록시 (:8790/api/status). 비전 서버 미기동 시 502 */
-  async getRealtimeVisionStatus(): Promise<unknown> {
-    return this.requestJson("/api/vision/realtime/status", {
-      method: "GET",
-      timeoutMs: this.defaultTimeoutMs,
-    });
+  async getRealtimeVisionStatus(): Promise<RealtimeVisionStatus> {
+    return this.requestJson<RealtimeVisionStatus>(
+      "/api/vision/realtime/status",
+      {
+        method: "GET",
+        timeoutMs: this.defaultTimeoutMs,
+      },
+    );
   }
 
   /** 로드된 YOLO 가중치 메타 프록시 */
-  async getRealtimeVisionModel(): Promise<unknown> {
-    return this.requestJson("/api/vision/realtime/model", {
-      method: "GET",
-      timeoutMs: this.defaultTimeoutMs,
-    });
+  async getRealtimeVisionModel(): Promise<RealtimeVisionModelInfo> {
+    return this.requestJson<RealtimeVisionModelInfo>(
+      "/api/vision/realtime/model",
+      {
+        method: "GET",
+        timeoutMs: this.defaultTimeoutMs,
+      },
+    );
+  }
+
+  /**
+   * 실시간 status 폴링. 다른 앱 UI에서 setInterval 대신 사용.
+   * @returns stop() 호출로 중지
+   */
+  startRealtimePolling(
+    onUpdate: (status: RealtimeVisionStatus) => void,
+    options?: {
+      intervalMs?: number;
+      onError?: (err: DensityApiError) => void;
+    },
+  ): { stop: () => void } {
+    const intervalMs = options?.intervalMs ?? 2_000;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const tick = async () => {
+      if (stopped) return;
+      try {
+        const status = await this.getRealtimeVisionStatus();
+        if (!stopped) onUpdate(status);
+      } catch (err) {
+        if (!stopped && options?.onError) {
+          options.onError(
+            err instanceof DensityApiError
+              ? err
+              : new DensityApiError(String(err), null),
+          );
+        }
+      } finally {
+        if (!stopped) {
+          timer = setTimeout(() => void tick(), intervalMs);
+        }
+      }
+    };
+
+    void tick();
+    return {
+      stop: () => {
+        stopped = true;
+        if (timer) clearTimeout(timer);
+      },
+    };
   }
 
   async getWaveguardDashboard(params?: {

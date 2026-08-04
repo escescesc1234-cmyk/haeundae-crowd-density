@@ -198,6 +198,15 @@ npm run vision:analyze -- vision/input/screenshots/01_wide_full_beach.png
 열지도 등 산출물: `http://localhost:3780/vision-output/...`  
 상세: `vision/README.md`
 
+### 다른 Cursor에서 실시간 구현
+
+1. 이 저장소 clone 후 `npm run dev` + `npm run vision:realtime`
+2. 데모 확인: http://localhost:3780/realtime.html
+3. 다른 앱 Cursor에 [`docs/SAFE-FLOW-OTHER-CURSOR-PROMPT.md`](docs/SAFE-FLOW-OTHER-CURSOR-PROMPT.md) 전체 붙여넣기
+4. 또는 `examples/safe-flow-client/safe-flow-realtime.js` 복사
+
+문서 인덱스: [`docs/README.md`](docs/README.md) · 실시간 계약: [`docs/SAFE-FLOW-REALTIME.md`](docs/SAFE-FLOW-REALTIME.md)
+
 ### 상시 배포 (노트북 OFF)
 
 Docker Compose로 VPS에 올리면 노트북을 꺼도 API·AI가 유지됩니다.  
